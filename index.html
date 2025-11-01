@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magnus Video Streams - Discover</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <div class="nav-brand">
+                <h1>Magnus Video Streams</h1>
+            </div>
+
+            <div class="nav-actions">
+                <div class="search-container">
+                    <input type="text" id="searchInput" placeholder="Search videos..." class="search-input" oninput="showSearchResults()" autocomplete="off">
+                    <button class="search-btn" onclick="searchVideos()">🔍</button>
+                    <div id="searchResults" class="search-results"></div>
+                </div>
+                <button class="profile-btn" onclick="toggleAuth()" id="profileButton">👤 Login</button>
+                <button class="profile-btn" onclick="goToAdmin()" id="adminButton" style="display:none">⚙️ Admin</button>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <section class="content-sections" style="margin-top: 80px;">
+            <div class="container">
+                <div class="section">
+                    <h3>Continue Watching</h3>
+                    <div class="content-grid">
+                        <div class="content-card">
+                            <div class="card-image"></div>
+                            <div class="card-info">
+                                <h4>Series Title 1</h4>
+                                <p>Episode 5 • 23 min left</p>
+                            </div>
+                        </div>
+                        <div class="content-card">
+                            <div class="card-image"></div>
+                            <div class="card-info">
+                                <h4>Series Title 2</h4>
+                                <p>Episode 12 • 18 min left</p>
+                            </div>
+                        </div>
+                        <div class="content-card">
+                            <div class="card-image"></div>
+                            <div class="card-info">
+                                <h4>Series Title 3</h4>
+                                <p>Episode 8 • 5 min left</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="genreSections">
+                    <!-- Genre swimlanes will be populated here -->
+                </div>
+                
+                <div class="section">
+                    <h3>All Series</h3>
+                    <div class="content-grid" id="allSeriesGrid">
+                        <!-- All videos will be populated here -->
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Auth Modal -->
+    <div id="authModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeAuth()">&times;</span>
+            <div id="loginForm">
+                <h3>Login</h3>
+                <input type="text" id="loginUsername" placeholder="Username">
+                <input type="password" id="loginPassword" placeholder="Password">
+                <button onclick="login()">Login</button>
+                <p>Don't have an account? <button type="button" onclick="showRegister()" style="background:none;border:none;color:#ff6600;text-decoration:underline;cursor:pointer;">Register</button></p>
+            </div>
+            <div id="registerForm" style="display:none">
+                <h3>Register</h3>
+                <input type="text" id="registerUsername" placeholder="Username (3-30 chars, letters/numbers/_)">
+                <input type="password" id="registerPassword" placeholder="Password (8+ chars, A-z, 0-9, @$!%*?&)">
+                <button onclick="register()">Register</button>
+                <p>Already have an account? <button type="button" onclick="showLogin()" style="background:none;border:none;color:#ff6600;text-decoration:underline;cursor:pointer;">Login</button></p>
+                <div class="password-requirements">
+                    <small>Password must contain:</small>
+                    <ul>
+                        <li>At least 8 characters</li>
+                        <li>Uppercase letter (A-Z)</li>
+                        <li>Lowercase letter (a-z)</li>
+                        <li>Number (0-9)</li>
+                        <li>Special character (@$!%*?&)</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Series Modal -->
+    <div id="seriesModal" class="modal">
+        <div class="modal-content series-modal">
+            <span class="close" onclick="closeSeries()">&times;</span>
+            <h3 id="seriesTitle"></h3>
+            <div id="videoList" class="video-list">
+                <!-- Video episodes will be populated here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Video Player Modal -->
+    <div id="videoModal" class="modal">
+        <div class="modal-content video-modal">
+            <span class="close" onclick="closeVideo()">&times;</span>
+            <video id="videoPlayer" controls preload="metadata" autoplay>
+                <source src="" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
+            <div class="audio-controls">
+                <label>Audio Track:</label>
+                <select id="audioTrackSelect" onchange="switchAudioTrack()"></select>
+            </div>
+            <div class="video-controls">
+                <button id="prevBtn" onclick="playPreviousVideo()" style="display:none">⏮ Previous</button>
+                <button id="nextBtn" onclick="playNextVideo()" style="display:none">Next ⏭</button>
+            </div>
+            <div class="video-info">
+                <h3 id="videoTitle"></h3>
+                <p id="videoDetails"></p>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2024 Magnus Video Streams. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+tunnel: hackhost-tunnel
+# credentials-file will be auto-detected
+
+ingress:
+  - hostname: magnushackhost.win
+    service: http://localhost:3000
+  - service: http_status:404

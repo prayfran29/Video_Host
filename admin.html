@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magnus Video Streams - Admin</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .admin-container { max-width: 800px; margin: 100px auto; padding: 2rem; }
+        .pending-user { background: #222; padding: 1rem; margin: 1rem 0; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+        .user-info { flex: 1; }
+        .user-actions { display: flex; gap: 0.5rem; }
+        .approve-btn { background: #28a745; }
+        .reject-btn { background: #dc3545; }
+        .no-pending { text-align: center; color: #999; padding: 2rem; }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <div class="nav-brand">
+                <h1>Magnus Video Streams - Admin</h1>
+            </div>
+            <div class="nav-actions">
+                <button class="profile-btn" onclick="logout()">Logout</button>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <div class="admin-container">
+            <h2>Pending User Registrations</h2>
+            <div id="pendingUsers">
+                <div class="no-pending">Loading...</div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let authToken = localStorage.getItem('authToken');
+        
+        if (!authToken) {
+            window.location.href = '/';
+        }
+
+        async function loadPendingUsers() {
+            try {
+                const response = await fetch('/api/admin/pending', {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+                
+                if (!response.ok) {
+                    if (response.status === 403) {
+                        alert('Admin access required');
+                        window.location.href = '/';
+                        return;
+                    }
+                    throw new Error('Failed to load');
+                }
+                
+                const pending = await response.json();
+                renderPendingUsers(pending);
+            } catch (error) {
+                document.getElementById('pendingUsers').innerHTML = '<div class="no-pending">Error loading pending users</div>';
+            }
+        }
+
+        function renderPendingUsers(pending) {
+            const container = document.getElementById('pendingUsers');
+            
+            if (pending.length === 0) {
+                container.innerHTML = '<div class="no-pending">No pending registrations</div>';
+                return;
+            }
+            
+            container.innerHTML = pending.map(user => `
+                <div class="pending-user">
+                    <div class="user-info">
+                        <strong>${user.username}</strong><br>
+                        <small>Registered: ${new Date(user.createdAt).toLocaleString()}</small>
+                    </div>
+                    <div class="user-actions">
+                        <button class="profile-btn approve-btn" onclick="approveUser('${user.id}')">Approve</button>
+                        <button class="profile-btn reject-btn" onclick="rejectUser('${user.id}')">Reject</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function approveUser(userId) {
+            try {
+                const response = await fetch(`/api/admin/approve/${userId}`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+                
+                if (response.ok) {
+                    loadPendingUsers();
+                } else {
+                    alert('Failed to approve user');
+                }
+            } catch (error) {
+                alert('Error approving user');
+            }
+        }
+
+        async function rejectUser(userId) {
+            if (!confirm('Are you sure you want to reject this user?')) return;
+            
+            try {
+                const response = await fetch(`/api/admin/reject/${userId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+                
+                if (response.ok) {
+                    loadPendingUsers();
+                } else {
+                    alert('Failed to reject user');
+                }
+            } catch (error) {
+                alert('Error rejecting user');
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('currentUser');
+            window.location.href = '/';
+        }
+
+        // Load pending users on page load
+        loadPendingUsers();
+        
+        // Auto-refresh every 30 seconds
+        setInterval(loadPendingUsers, 30000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  video-host:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./videos:/app/videos
+      - ./data:/app/data
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
