@@ -309,7 +309,11 @@ function renderSeries(series) {
         const inProgress = series.filter(s => 
             watchProgress[s.id] && 
             Object.values(watchProgress[s.id]).some(v => !v.completed)
-        );
+        ).sort((a, b) => {
+            const aLastWatched = Math.max(...Object.values(watchProgress[a.id] || {}).map(v => new Date(v.lastWatched || 0).getTime()));
+            const bLastWatched = Math.max(...Object.values(watchProgress[b.id] || {}).map(v => new Date(v.lastWatched || 0).getTime()));
+            return bLastWatched - aLastWatched;
+        });
         
         inProgress.forEach(series => {
             const card = createSeriesCard(series, true);

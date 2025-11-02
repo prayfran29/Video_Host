@@ -253,7 +253,8 @@ app.post('/api/register',
                 username, 
                 password: hashedPassword,
                 createdAt: new Date().toISOString(),
-                approved: true
+                approved: true,
+                adultAccess: true
             };
             users.push(user);
             saveUsers();
@@ -265,7 +266,8 @@ app.post('/api/register',
                 username, 
                 password: hashedPassword,
                 createdAt: new Date().toISOString(),
-                approved: false
+                approved: false,
+                adultAccess: false
             };
             pendingUsers.push(pendingUser);
             savePending();
@@ -320,7 +322,7 @@ app.get('/api/series', auth, (req, res) => {
         
         // Scan root videos directory
         const rootItems = fs.readdirSync(videosDir, { withFileTypes: true })
-            .filter(dirent => dirent.isDirectory());
+            .filter(dirent => dirent.isDirectory() && dirent.name !== 'Adult');
         
         for (const item of rootItems) {
             if (!validatePath(item.name)) continue;
@@ -393,6 +395,81 @@ app.get('/api/series', auth, (req, res) => {
     }
 });
 
+// Get all series including adult content
+app.get('/api/series/adult', auth, (req, res) => {
+    try {
+        const videosDir = path.join(__dirname, 'videos');
+        
+        if (!fs.existsSync(videosDir)) {
+            return res.json([]);
+        }
+        
+        const series = [];
+        
+        // Scan root videos directory (including adult)
+        const rootItems = fs.readdirSync(videosDir, { withFileTypes: true })
+            .filter(dirent => dirent.isDirectory());
+        
+        for (const item of rootItems) {
+            if (!validatePath(item.name)) continue;
+            
+            const itemPath = path.join(videosDir, item.name);
+            if (!fs.existsSync(itemPath)) continue;
+            
+            const files = fs.readdirSync(itemPath);
+            const videos = files.filter(f => f.match(/\.(mp4|webm|ogg|avi|mkv)$/i));
+            
+            if (videos.length > 0) {
+                const thumbnail = files.find(f => f.toLowerCase() === 'img' || f.startsWith('img.'));
+                series.push({
+                    id: item.name,
+                    title: item.name,
+                    genre: 'Root',
+                    thumbnail: thumbnail ? `/videos/${encodeURIComponent(item.name)}/${encodeURIComponent(thumbnail)}` : null,
+                    videoCount: videos.length,
+                    videos: videos.map(v => ({
+                        filename: v,
+                        url: `/videos/${encodeURIComponent(item.name)}/${encodeURIComponent(v)}`
+                    }))
+                });
+            } else {
+                const subItems = fs.readdirSync(itemPath, { withFileTypes: true })
+                    .filter(dirent => dirent.isDirectory());
+                
+                for (const subItem of subItems) {
+                    if (!validatePath(subItem.name)) continue;
+                    
+                    const subPath = path.join(itemPath, subItem.name);
+                    if (!fs.existsSync(subPath)) continue;
+                    
+                    const subFiles = fs.readdirSync(subPath);
+                    const subVideos = subFiles.filter(f => f.match(/\.(mp4|webm|ogg|avi|mkv)$/i));
+                    
+                    if (subVideos.length > 0) {
+                        const thumbnail = subFiles.find(f => f.toLowerCase() === 'img' || f.startsWith('img.'));
+                        series.push({
+                            id: `${item.name}/${subItem.name}`,
+                            title: subItem.name,
+                            genre: item.name,
+                            thumbnail: thumbnail ? `/videos/${encodeURIComponent(item.name)}/${encodeURIComponent(subItem.name)}/${encodeURIComponent(thumbnail)}` : null,
+                            videoCount: subVideos.length,
+                            videos: subVideos.map(v => ({
+                                filename: v,
+                                url: `/videos/${encodeURIComponent(item.name)}/${encodeURIComponent(subItem.name)}/${encodeURIComponent(v)}`
+                            }))
+                        });
+                    }
+                }
+            }
+        }
+        
+        res.json(series);
+    } catch (error) {
+        console.error('Adult series loading error:', error);
+        res.status(500).json({ error: 'Failed to load series' });
+    }
+});
+
 // Get series grouped by genre
 app.get('/api/genres', auth, (req, res) => {
     try {
@@ -404,7 +481,7 @@ app.get('/api/genres', auth, (req, res) => {
         
         const genres = {};
         const rootItems = fs.readdirSync(videosDir, { withFileTypes: true })
-            .filter(dirent => dirent.isDirectory());
+            .filter(dirent => dirent.isDirectory() && dirent.name !== 'Adult');
         
         for (const item of rootItems) {
             if (!validatePath(item.name)) continue;
@@ -542,6 +619,15 @@ app.get('/api/progress', auth, (req, res) => {
     res.json(watchProgress[userId] || {});
 });
 
+// Adult page route with access control
+app.get('/adult', auth, (req, res) => {
+    const user = users.find(u => u.id === req.user.id);
+    if (!user || !user.adultAccess) {
+        return res.status(403).send('Access denied');
+    }
+    res.sendFile(path.join(__dirname, 'adult.html'));
+});
+
 // Admin routes
 const ADMIN_USERNAME = 'Magnus';
 
@@ -587,7 +673,21 @@ app.delete('/api/admin/reject/:id', auth, adminAuth, (req, res) => {
 });
 
 app.get('/api/admin/users', auth, adminAuth, (req, res) => {
-    res.json(users.map(u => ({ id: u.id, username: u.username, createdAt: u.createdAt })));
+    res.json(users.map(u => ({ id: u.id, username: u.username, createdAt: u.createdAt, adultAccess: u.adultAccess || false })));
+});
+
+app.post('/api/admin/adult-access/:id', auth, adminAuth, (req, res) => {
+    const userId = req.params.id;
+    const { adultAccess } = req.body;
+    const userIndex = users.findIndex(u => u.id === userId);
+    
+    if (userIndex === -1) {
+        return res.status(404).json({ error: 'User not found' });
+    }
+    
+    users[userIndex].adultAccess = adultAccess;
+    saveUsers();
+    res.json({ message: 'Adult access updated' });
 });
 
 app.delete('/api/admin/users/:id', auth, adminAuth, (req, res) => {

@@ -167,13 +167,38 @@
                 <div class="existing-user">
                     <div class="user-info">
                         <strong>${user.username}</strong><br>
-                        <small>Created: ${new Date(user.createdAt).toLocaleString()}</small>
+                        <small>Created: ${new Date(user.createdAt).toLocaleString()}</small><br>
+                        <small>Adult Access: ${user.adultAccess ? 'Yes' : 'No'}</small>
                     </div>
                     <div class="user-actions">
-                        ${user.username !== 'Magnus' ? `<button class="profile-btn delete-btn" onclick="deleteUser('${user.id}')">Delete</button>` : '<span style="color: #999;">Admin</span>'}
+                        <button class="profile-btn ${user.adultAccess ? 'reject-btn' : 'approve-btn'}" onclick="toggleAdultAccess('${user.id}', ${!user.adultAccess})">
+                            ${user.adultAccess ? 'Remove Adult' : 'Grant Adult'}
+                        </button>
+                        ${user.username !== 'Magnus' ? `<button class="profile-btn delete-btn" onclick="deleteUser('${user.id}')">Delete</button>` : ''}
                     </div>
                 </div>
             `).join('');
+        }
+
+        async function toggleAdultAccess(userId, adultAccess) {
+            try {
+                const response = await fetch(`/api/admin/adult-access/${userId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({ adultAccess })
+                });
+                
+                if (response.ok) {
+                    loadExistingUsers();
+                } else {
+                    alert('Failed to update adult access');
+                }
+            } catch (error) {
+                alert('Error updating adult access');
+            }
         }
 
         async function deleteUser(userId) {
