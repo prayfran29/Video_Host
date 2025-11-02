@@ -115,10 +115,16 @@
     <div id="videoModal" class="modal">
         <div class="modal-content video-modal">
             <span class="close" onclick="closeVideo()">&times;</span>
-            <video id="videoPlayer" controls preload="metadata" autoplay>
-                <source src="" type="video/mp4">
-                Your browser does not support the video tag.
-            </video>
+            <div class="video-container">
+                <video id="videoPlayer" controls preload="none" autoplay>
+                    <source src="" type="video/mp4">
+                    Your browser does not support the video tag.
+                </video>
+                <div id="videoLoading" class="video-loading" style="display:none;">
+                    <div class="loading-spinner"></div>
+                    <p>Loading video...</p>
+                </div>
+            </div>
             <div class="audio-controls">
                 <label>Audio Track:</label>
                 <select id="audioTrackSelect" onchange="switchAudioTrack()"></select>

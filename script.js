@@ -410,6 +410,29 @@ function playVideo(url, filename, title, videoIndex = null) {
     videoTitle.textContent = title;
     details.textContent = currentSeries ? currentSeries.title : '';
     
+    // Add loading error handling
+    player.onerror = () => {
+        setTimeout(() => {
+            player.load();
+        }, 2000);
+    };
+    
+    player.onloadstart = () => {
+        document.getElementById('videoLoading').style.display = 'block';
+    };
+    
+    player.oncanplay = () => {
+        document.getElementById('videoLoading').style.display = 'none';
+    };
+    
+    player.onwaiting = () => {
+        document.getElementById('videoLoading').style.display = 'block';
+    };
+    
+    player.onplaying = () => {
+        document.getElementById('videoLoading').style.display = 'none';
+    };
+    
     // Setup audio track detection and force audio
     player.onloadedmetadata = () => {
         setupAudioTracks();
