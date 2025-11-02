@@ -199,9 +199,32 @@ body {
     border-radius: 4px;
 }
 
-.genre-swimlane .content-card {
+.genre-swimlane .content-card,
+.continue-watching-swimlane .content-card {
     min-width: 280px;
     flex-shrink: 0;
+}
+
+.continue-watching-swimlane {
+    display: flex;
+    gap: 1.5rem;
+    overflow-x: auto;
+    padding-bottom: 1rem;
+    scroll-behavior: smooth;
+}
+
+.continue-watching-swimlane::-webkit-scrollbar {
+    height: 8px;
+}
+
+.continue-watching-swimlane::-webkit-scrollbar-track {
+    background: #333;
+    border-radius: 4px;
+}
+
+.continue-watching-swimlane::-webkit-scrollbar-thumb {
+    background: #ff6600;
+    border-radius: 4px;
 }
 
 .content-card {

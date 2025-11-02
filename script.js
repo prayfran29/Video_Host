@@ -302,14 +302,14 @@ function renderGenres(genres) {
 
 function renderSeries(series) {
     // Continue Watching section
-    const continueGrid = document.querySelector('.content-grid:first-of-type');
+    const continueGrid = document.getElementById('continueWatchingGrid');
     continueGrid.innerHTML = '';
     
     if (currentUser) {
         const inProgress = series.filter(s => 
             watchProgress[s.id] && 
             Object.values(watchProgress[s.id]).some(v => !v.completed)
-        ).slice(0, 3);
+        );
         
         inProgress.forEach(series => {
             const card = createSeriesCard(series, true);
@@ -406,15 +406,25 @@ function playVideo(url, filename, title, videoIndex = null) {
         currentVideoIndex = videoIndex;
     }
     
-    player.src = url;
+    // Reset player and show loading
+    player.src = '';
+    document.getElementById('videoLoading').style.display = 'block';
+    
     videoTitle.textContent = title;
     details.textContent = currentSeries ? currentSeries.title : '';
     
-    // Add loading error handling
+    // Optimize video loading
+    player.preload = 'metadata';
+    
+    // Add loading error handling with retry
+    let retryCount = 0;
     player.onerror = () => {
-        setTimeout(() => {
-            player.load();
-        }, 2000);
+        if (retryCount < 3) {
+            retryCount++;
+            setTimeout(() => {
+                player.load();
+            }, 1000 * retryCount);
+        }
     };
     
     player.onloadstart = () => {
@@ -438,25 +448,26 @@ function playVideo(url, filename, title, videoIndex = null) {
         setupAudioTracks();
         // Force audio for dual audio files
         if (player.audioTracks && player.audioTracks.length >= 2) {
-            // Try enabling the second track (often English in dual audio)
             player.audioTracks[1].enabled = true;
             player.audioTracks[0].enabled = false;
         }
-        // Ensure volume is up
         player.volume = 1.0;
         player.muted = false;
         
-        // Auto-play when metadata is loaded
+        // Load saved progress before playing
+        if (currentUser && currentSeries && watchProgress[currentSeries.id] && watchProgress[currentSeries.id][filename]) {
+            const progress = watchProgress[currentSeries.id][filename];
+            player.currentTime = progress.currentTime || 0;
+        }
+        
+        // Auto-play when ready
         player.play().catch(() => {});
     };
     
-    updateVideoControls();
+    // Set source after event handlers
+    player.src = url;
     
-    // Load saved progress
-    if (currentUser && currentSeries && watchProgress[currentSeries.id] && watchProgress[currentSeries.id][filename]) {
-        const progress = watchProgress[currentSeries.id][filename];
-        player.currentTime = progress.currentTime || 0;
-    }
+    updateVideoControls();
     
     // Save progress periodically and auto-play next
     if (currentUser && currentSeries) {

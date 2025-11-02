@@ -30,28 +30,8 @@
             <div class="container">
                 <div class="section">
                     <h3>Continue Watching</h3>
-                    <div class="content-grid">
-                        <div class="content-card">
-                            <div class="card-image"></div>
-                            <div class="card-info">
-                                <h4>Series Title 1</h4>
-                                <p>Episode 5 • 23 min left</p>
-                            </div>
-                        </div>
-                        <div class="content-card">
-                            <div class="card-image"></div>
-                            <div class="card-info">
-                                <h4>Series Title 2</h4>
-                                <p>Episode 12 • 18 min left</p>
-                            </div>
-                        </div>
-                        <div class="content-card">
-                            <div class="card-image"></div>
-                            <div class="card-info">
-                                <h4>Series Title 3</h4>
-                                <p>Episode 8 • 5 min left</p>
-                            </div>
-                        </div>
+                    <div class="continue-watching-swimlane" id="continueWatchingGrid">
+                        <!-- Continue watching items will be populated here -->
                     </div>
                 </div>
 
@@ -116,7 +96,7 @@
         <div class="modal-content video-modal">
             <span class="close" onclick="closeVideo()">&times;</span>
             <div class="video-container">
-                <video id="videoPlayer" controls preload="none" autoplay>
+                <video id="videoPlayer" controls preload="metadata" autoplay>
                     <source src="" type="video/mp4">
                     Your browser does not support the video tag.
                 </video>

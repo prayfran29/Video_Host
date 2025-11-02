@@ -152,7 +152,7 @@ const auth = (req, res, next) => {
     }
 };
 
-// Secure video serving with auth
+// Secure video serving with auth and streaming optimizations
 app.use('/videos', auth, (req, res, next) => {
     const filePath = req.path;
     
@@ -169,8 +169,54 @@ app.use('/videos', auth, (req, res, next) => {
         return res.status(403).json({ error: 'Access denied' });
     }
     
+    // Handle video streaming with range requests
+    if (req.path.match(/\.(mp4|webm|ogg|avi|mkv)$/i)) {
+        return streamVideo(req, res, fullPath);
+    }
+    
     next();
-}, express.static('videos'));
+}, express.static('videos', {
+    maxAge: '1d',
+    etag: true,
+    lastModified: true
+}));
+
+// Video streaming function with range support
+function streamVideo(req, res, videoPath) {
+    if (!fs.existsSync(videoPath)) {
+        return res.status(404).json({ error: 'Video not found' });
+    }
+    
+    const stat = fs.statSync(videoPath);
+    const fileSize = stat.size;
+    const range = req.headers.range;
+    
+    // Set caching headers
+    res.set({
+        'Accept-Ranges': 'bytes',
+        'Content-Type': 'video/mp4',
+        'Cache-Control': 'public, max-age=86400',
+        'ETag': `"${stat.mtime.getTime()}-${fileSize}"`
+    });
+    
+    if (range) {
+        const parts = range.replace(/bytes=/, "").split("-");
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        const chunksize = (end - start) + 1;
+        
+        res.status(206).set({
+            'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+            'Content-Length': chunksize
+        });
+        
+        const stream = fs.createReadStream(videoPath, { start, end });
+        stream.pipe(res);
+    } else {
+        res.set('Content-Length', fileSize);
+        fs.createReadStream(videoPath).pipe(res);
+    }
+}
 
 // Routes with validation
 app.post('/api/register', 
