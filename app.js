@@ -540,6 +540,28 @@ app.delete('/api/admin/reject/:id', auth, adminAuth, (req, res) => {
     res.json({ message: 'User rejected' });
 });
 
+app.get('/api/admin/users', auth, adminAuth, (req, res) => {
+    res.json(users.map(u => ({ id: u.id, username: u.username, createdAt: u.createdAt })));
+});
+
+app.delete('/api/admin/users/:id', auth, adminAuth, (req, res) => {
+    const userId = req.params.id;
+    const userIndex = users.findIndex(u => u.id === userId);
+    
+    if (userIndex === -1) {
+        return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const user = users[userIndex];
+    if (user.username === 'Magnus') {
+        return res.status(403).json({ error: 'Cannot delete admin account' });
+    }
+    
+    users.splice(userIndex, 1);
+    saveUsers();
+    res.json({ message: 'User deleted' });
+});
+
 // Force HTTPS in production
 if (process.env.NODE_ENV === 'production') {
     app.use((req, res, next) => {
