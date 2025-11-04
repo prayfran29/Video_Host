@@ -6,8 +6,9 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./videos:/app/videos
+      - "${VIDEOS_PATH}:/app/videos"
       - ./data:/app/data
     environment:
       - NODE_ENV=production
+      - VIDEOS_PATH=${VIDEOS_PATH}
     restart: unless-stopped

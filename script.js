@@ -27,6 +27,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (document.getElementById('searchInput')) {
         document.getElementById('searchInput').value = '';
     }
+    
+    // Set current year in footer
+    const yearElement = document.getElementById('currentYear');
+    if (yearElement) {
+        yearElement.textContent = new Date().getFullYear();
+    }
 });
 
 function showLoginModal() {

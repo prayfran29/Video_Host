@@ -3,15 +3,13 @@ const fs = require('fs');
 
 class Config {
     constructor() {
-        this.videosPath = process.env.VIDEOS_PATH || './videos';
-        this.videosDir = this.getVideosDirectory();
+        // In Docker, always use /app/videos regardless of VIDEOS_PATH
+        this.videosDir = '/app/videos';
         this.ensureVideosDirectory();
     }
 
     getVideosDirectory() {
-        return path.isAbsolute(this.videosPath) 
-            ? this.videosPath 
-            : path.join(__dirname, this.videosPath);
+        return this.videosDir;
     }
 
     ensureVideosDirectory() {
