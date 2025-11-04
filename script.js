@@ -392,10 +392,14 @@ async function openSeries(series) {
         const response = await fetch(`/api/series/${series.id}`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
-        currentSeries = await response.json();
-        showSeriesModal(currentSeries);
+        if (response.ok) {
+            currentSeries = await response.json();
+            showSeriesModal(currentSeries);
+        } else {
+            alert('Failed to load series');
+        }
     } catch (error) {
-        // Silent fail
+        alert('Error loading series');
     }
 }
 
