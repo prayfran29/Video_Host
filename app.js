@@ -35,6 +35,14 @@ app.use(helmet({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static('.'));
 
+// Handle request timeouts
+app.use((req, res, next) => {
+    req.setTimeout(30000, () => {
+        res.status(408).json({ error: 'Request timeout' });
+    });
+    next();
+});
+
 // Admin page route
 app.get('/admin', (req, res) => {
     res.sendFile(path.join(__dirname, 'admin.html'));
@@ -211,10 +219,30 @@ function streamVideo(req, res, videoPath) {
         });
         
         const stream = fs.createReadStream(videoPath, { start, end });
+        
+        // Handle stream errors and client disconnects
+        stream.on('error', () => {
+            if (!res.headersSent) res.status(500).end();
+        });
+        
+        req.on('close', () => {
+            stream.destroy();
+        });
+        
         stream.pipe(res);
     } else {
         res.set('Content-Length', fileSize);
-        fs.createReadStream(videoPath).pipe(res);
+        const stream = fs.createReadStream(videoPath);
+        
+        stream.on('error', () => {
+            if (!res.headersSent) res.status(500).end();
+        });
+        
+        req.on('close', () => {
+            stream.destroy();
+        });
+        
+        stream.pipe(res);
     }
 }
 
@@ -718,6 +746,17 @@ if (process.env.NODE_ENV === 'production') {
         }
     });
 }
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+    if (err.code === 'ECONNABORTED' || err.message === 'request aborted') {
+        return; // Silently ignore aborted requests
+    }
+    console.error('Server error:', err);
+    if (!res.headersSent) {
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
 
 app.listen(3000, () => {
     console.log('Server running on port 3000');

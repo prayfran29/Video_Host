@@ -333,7 +333,33 @@ function renderSeries(series) {
 function createSeriesCard(series, showProgress = false) {
     const card = document.createElement('div');
     card.className = 'content-card';
-    card.onclick = () => openSeries(series);
+    
+    if (showProgress && watchProgress[series.id]) {
+        // Find last watched video
+        const progressEntries = Object.entries(watchProgress[series.id]);
+        const lastWatched = progressEntries.reduce((latest, [filename, progress]) => {
+            const watchTime = new Date(progress.lastWatched || 0).getTime();
+            return watchTime > latest.time ? { filename, time: watchTime, progress } : latest;
+        }, { filename: null, time: 0, progress: null });
+        
+        if (lastWatched.filename) {
+            card.onclick = () => {
+                // Find video in series and play directly
+                const video = series.videos?.find(v => v.filename === lastWatched.filename);
+                if (video) {
+                    const videoIndex = series.videos.indexOf(video);
+                    currentSeries = series;
+                    playVideo(video.url, video.filename, video.title, videoIndex);
+                } else {
+                    openSeries(series);
+                }
+            };
+        } else {
+            card.onclick = () => openSeries(series);
+        }
+    } else {
+        card.onclick = () => openSeries(series);
+    }
     
     let progressText = `${series.videoCount} videos`;
     if (showProgress && watchProgress[series.id]) {
@@ -455,7 +481,7 @@ function playVideo(url, filename, title, videoIndex = null) {
             player.audioTracks[1].enabled = true;
             player.audioTracks[0].enabled = false;
         }
-        player.volume = 1.0;
+        player.volume = 0.3;
         player.muted = false;
         
         // Load saved progress before playing
@@ -520,6 +546,13 @@ function closeVideo() {
     const player = document.getElementById('videoPlayer');
     player.pause();
     modal.style.display = 'none';
+}
+
+function backToSeries() {
+    if (currentSeries) {
+        document.getElementById('videoModal').style.display = 'none';
+        showSeriesModal(currentSeries);
+    }
 }
 
 function updateVideoControls() {
