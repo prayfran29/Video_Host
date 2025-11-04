@@ -7,6 +7,7 @@ const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const { body, validationResult, param } = require('express-validator');
 const crypto = require('crypto');
+const config = require('./config');
 const app = express();
 
 // Trust proxy for Cloudflare tunnel (localhost only)
@@ -136,10 +137,12 @@ function savePending() {
     fs.writeFileSync(pendingFile, JSON.stringify(pendingUsers, null, 2));
 }
 
-// Ensure videos directory exists
-const videosDir = path.join(__dirname, 'videos');
-if (!fs.existsSync(videosDir)) {
-    fs.mkdirSync(videosDir);
+// Get videos directory from config
+const videosDir = config.getVideosPath();
+
+// Validate videos directory on startup
+if (!config.validateVideosPath()) {
+    console.error('⚠️  Videos directory validation failed. Check permissions and path.');
 }
 
 // Auth middleware with token expiration
@@ -170,8 +173,7 @@ app.use('/videos', auth, (req, res, next) => {
     }
     
     // Check file exists and is within videos directory
-    const fullPath = path.join(__dirname, 'videos', filePath);
-    const videosDir = path.join(__dirname, 'videos');
+    const fullPath = path.join(videosDir, filePath);
     
     if (!fullPath.startsWith(videosDir)) {
         return res.status(403).json({ error: 'Access denied' });
@@ -183,7 +185,7 @@ app.use('/videos', auth, (req, res, next) => {
     }
     
     next();
-}, express.static('videos', {
+}, express.static(videosDir, {
     maxAge: '1d',
     etag: true,
     lastModified: true
@@ -340,7 +342,6 @@ app.post('/api/login',
 // Get all series from videos directory with auth (supports genre folders)
 app.get('/api/series', auth, (req, res) => {
     try {
-        const videosDir = path.join(__dirname, 'videos');
         
         if (!fs.existsSync(videosDir)) {
             return res.json([]);
@@ -426,7 +427,6 @@ app.get('/api/series', auth, (req, res) => {
 // Get all series including adult content
 app.get('/api/series/adult', auth, (req, res) => {
     try {
-        const videosDir = path.join(__dirname, 'videos');
         
         if (!fs.existsSync(videosDir)) {
             return res.json([]);
@@ -501,7 +501,6 @@ app.get('/api/series/adult', auth, (req, res) => {
 // Get series grouped by genre
 app.get('/api/genres', auth, (req, res) => {
     try {
-        const videosDir = path.join(__dirname, 'videos');
         
         if (!fs.existsSync(videosDir)) {
             return res.json({});
@@ -585,7 +584,7 @@ app.get('/api/series/*',
                 return res.status(400).json({ error: 'Invalid series path' });
             }
             
-            const seriesPath = path.join(__dirname, 'videos', ...pathParts);
+            const seriesPath = path.join(videosDir, ...pathParts);
             
             if (!fs.existsSync(seriesPath)) {
                 return res.status(404).json({ error: 'Series not found' });

@@ -10,6 +10,28 @@ A Crunchyroll-inspired video hosting platform with authentication, search, and v
 - **Responsive Design**: Mobile-friendly Crunchyroll-inspired UI
 - **Docker Support**: Containerized for easy deployment
 
+## Configuration
+
+### Videos Directory
+
+The videos directory can be configured to be anywhere on your system by setting the `VIDEOS_PATH` environment variable:
+
+```bash
+# In your .env file
+VIDEOS_PATH=./videos                    # Relative to project (default)
+VIDEOS_PATH=C:\Videos                   # Absolute Windows path
+VIDEOS_PATH=/home/user/videos           # Absolute Linux/Mac path
+VIDEOS_PATH=D:\Media\MyVideos          # Custom drive on Windows
+```
+
+**Examples:**
+- `VIDEOS_PATH=./videos` - Default, creates videos folder in project directory
+- `VIDEOS_PATH=C:\Users\YourName\Videos` - Use your Windows user Videos folder
+- `VIDEOS_PATH=/mnt/nas/videos` - Use a network attached storage
+- `VIDEOS_PATH=D:\Media` - Use a different drive
+
+The application will automatically create the directory if it doesn't exist and validate write permissions on startup.
+
 ## Quick Start
 
 ### Using Docker (Recommended)
