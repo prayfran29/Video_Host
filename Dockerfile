@@ -9,6 +9,7 @@ RUN npm install --omit=dev
 # Copy source code
 COPY *.js *.html *.css *.md ./
 COPY .dockerignore ./
+COPY public/ ./public/
 
 # Create directories
 RUN mkdir -p /app/videos /app/data
