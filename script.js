@@ -86,8 +86,49 @@ async function generateQRLogin() {
         
         if (response.ok) {
             const qrUrl = `${window.location.origin}/qr-auth?token=${data.token}`;
-            document.getElementById('qrCode').innerHTML = `<img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrUrl)}" alt="QR Code">`;
-            document.getElementById('qrStatus').textContent = 'Waiting for login...';
+            
+            // Try multiple QR code services
+            const qrServices = [
+                `https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=${encodeURIComponent(qrUrl)}`,
+                `https://qr-server.com/api/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrUrl)}`,
+                `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrUrl)}`
+            ];
+            
+            let qrGenerated = false;
+            for (const service of qrServices) {
+                try {
+                    const img = new Image();
+                    img.onload = () => {
+                        if (!qrGenerated) {
+                            qrGenerated = true;
+                            document.getElementById('qrCode').innerHTML = `<img src="${service}" alt="QR Code" style="max-width:200px;">`;
+                            document.getElementById('qrStatus').textContent = 'Waiting for login...';
+                        }
+                    };
+                    img.onerror = () => {}; // Silent fail, try next service
+                    img.src = service;
+                    
+                    // Break after first attempt
+                    break;
+                } catch (e) {
+                    continue;
+                }
+            }
+            
+            // Fallback if no QR service works
+            setTimeout(() => {
+                if (!qrGenerated) {
+                    document.getElementById('qrCode').innerHTML = `
+                        <div style="padding:2rem;border:2px dashed #666;text-align:center;">
+                            <p style="margin:0;color:#ff6600;font-weight:bold;">QR Code</p>
+                            <p style="margin:0.5rem 0;font-size:0.8rem;color:#999;">Visit this URL on your phone:</p>
+                            <p style="margin:0;font-size:0.7rem;word-break:break-all;color:#fff;">${qrUrl}</p>
+                        </div>
+                    `;
+                    document.getElementById('qrStatus').textContent = 'Waiting for login...';
+                    qrGenerated = true;
+                }
+            }, 3000);
             
             // Poll for login completion
             qrPollInterval = setInterval(() => checkQRLogin(data.token), 2000);
