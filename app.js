@@ -93,6 +93,7 @@ if (!fs.existsSync(dataDir)) {
 let users = [];
 let watchProgress = {};
 let pendingUsers = [];
+let qrTokens = new Map(); // Store QR login tokens
 
 if (fs.existsSync(usersFile)) {
     try {
@@ -338,6 +339,142 @@ app.post('/api/login',
         res.json({ token, username });
     }
 );
+
+// QR Code login endpoints
+app.post('/api/qr-login', (req, res) => {
+    const token = crypto.randomUUID();
+    qrTokens.set(token, { 
+        authenticated: false, 
+        createdAt: Date.now(),
+        expiresAt: Date.now() + (5 * 60 * 1000) // 5 minutes
+    });
+    
+    // Clean up expired tokens
+    for (const [key, value] of qrTokens.entries()) {
+        if (Date.now() > value.expiresAt) {
+            qrTokens.delete(key);
+        }
+    }
+    
+    res.json({ token });
+});
+
+app.get('/api/qr-login/:token', (req, res) => {
+    const token = req.params.token;
+    const qrData = qrTokens.get(token);
+    
+    if (!qrData || Date.now() > qrData.expiresAt) {
+        qrTokens.delete(token);
+        return res.status(404).json({ error: 'Token expired or not found' });
+    }
+    
+    res.json({ 
+        authenticated: qrData.authenticated,
+        authToken: qrData.authToken,
+        username: qrData.username
+    });
+});
+
+// QR Auth page for mobile
+app.get('/qr-auth', (req, res) => {
+    const token = req.query.token;
+    if (!token || !qrTokens.has(token)) {
+        return res.status(404).send('Invalid or expired QR code');
+    }
+    
+    res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>TV Login</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body { font-family: Arial, sans-serif; padding: 20px; background: #0b0b0b; color: #fff; }
+                .container { max-width: 400px; margin: 0 auto; text-align: center; }
+                input, button { width: 100%; padding: 12px; margin: 8px 0; border: none; border-radius: 4px; }
+                input { background: #333; color: #fff; }
+                button { background: #ff6600; color: #fff; cursor: pointer; }
+                button:hover { background: #e55a00; }
+                .success { color: #28a745; }
+                .error { color: #dc3545; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h2>Login to TV</h2>
+                <form id="loginForm">
+                    <input type="text" id="username" placeholder="Username" required>
+                    <input type="password" id="password" placeholder="Password" required>
+                    <button type="submit">Login to TV</button>
+                </form>
+                <div id="message"></div>
+            </div>
+            <script>
+                document.getElementById('loginForm').onsubmit = async (e) => {
+                    e.preventDefault();
+                    const username = document.getElementById('username').value;
+                    const password = document.getElementById('password').value;
+                    const message = document.getElementById('message');
+                    
+                    try {
+                        const response = await fetch('/api/qr-auth/${token}', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ username, password })
+                        });
+                        
+                        const data = await response.json();
+                        if (response.ok) {
+                            message.innerHTML = '<p class="success">✓ Successfully logged in to TV!</p>';
+                            document.getElementById('loginForm').style.display = 'none';
+                        } else {
+                            message.innerHTML = '<p class="error">' + data.error + '</p>';
+                        }
+                    } catch (error) {
+                        message.innerHTML = '<p class="error">Login failed</p>';
+                    }
+                };
+            </script>
+        </body>
+        </html>
+    `);
+});
+
+app.post('/api/qr-auth/:token', async (req, res) => {
+    const token = req.params.token;
+    const { username, password } = req.body;
+    
+    const qrData = qrTokens.get(token);
+    if (!qrData || Date.now() > qrData.expiresAt) {
+        qrTokens.delete(token);
+        return res.status(404).json({ error: 'Token expired or not found' });
+    }
+    
+    const user = users.find(u => u.username === username);
+    if (!user || !await bcrypt.compare(password, user.password)) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    if (!user.approved && user.username !== 'Magnus') {
+        return res.status(401).json({ error: 'Account pending approval' });
+    }
+    
+    const authToken = jwt.sign(
+        { id: user.id, username },
+        JWT_SECRET,
+        { expiresIn: '24h' }
+    );
+    
+    // Update QR token with auth data
+    qrTokens.set(token, {
+        ...qrData,
+        authenticated: true,
+        authToken,
+        username
+    });
+    
+    res.json({ message: 'Login successful' });
+});
 
 // Get all series from videos directory with auth (supports genre folders)
 app.get('/api/series', auth, (req, res) => {

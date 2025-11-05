@@ -31,7 +31,6 @@ public class MainActivity extends Activity {
         webSettings.setAllowFileAccessFromFileURLs(true);
         webSettings.setAllowUniversalAccessFromFileURLs(true);
         webSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
-        webSettings.setAppCacheEnabled(true);
         webSettings.setDatabaseEnabled(true);
         webSettings.setLoadWithOverviewMode(true);
         webSettings.setUseWideViewPort(true);
@@ -49,7 +48,7 @@ public class MainActivity extends Activity {
             @Override
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
                 // Retry loading on error
-                if (failingUrl.contains(".mkv") || failingUrl.contains(".avi")) {
+                if (failingUrl.contains(".avi")) {
                     // Video file error - reload page
                     view.reload();
                 }

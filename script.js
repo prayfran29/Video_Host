@@ -58,11 +58,66 @@ function closeAuth() {
 function showLogin() {
     document.getElementById('loginForm').style.display = 'block';
     document.getElementById('registerForm').style.display = 'none';
+    document.getElementById('qrLoginForm').style.display = 'none';
+    if (qrPollInterval) {
+        clearInterval(qrPollInterval);
+        qrPollInterval = null;
+    }
 }
 
 function showRegister() {
     document.getElementById('loginForm').style.display = 'none';
     document.getElementById('registerForm').style.display = 'block';
+    document.getElementById('qrLoginForm').style.display = 'none';
+}
+
+function showQRLogin() {
+    document.getElementById('loginForm').style.display = 'none';
+    document.getElementById('qrLoginForm').style.display = 'block';
+    generateQRLogin();
+}
+
+let qrPollInterval = null;
+
+async function generateQRLogin() {
+    try {
+        const response = await fetch('/api/qr-login', { method: 'POST' });
+        const data = await response.json();
+        
+        if (response.ok) {
+            const qrUrl = `${window.location.origin}/qr-auth?token=${data.token}`;
+            document.getElementById('qrCode').innerHTML = `<img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrUrl)}" alt="QR Code">`;
+            document.getElementById('qrStatus').textContent = 'Waiting for login...';
+            
+            // Poll for login completion
+            qrPollInterval = setInterval(() => checkQRLogin(data.token), 2000);
+        } else {
+            document.getElementById('qrStatus').textContent = 'Failed to generate QR code';
+        }
+    } catch (error) {
+        document.getElementById('qrStatus').textContent = 'Error generating QR code';
+    }
+}
+
+async function checkQRLogin(token) {
+    try {
+        const response = await fetch(`/api/qr-login/${token}`);
+        const data = await response.json();
+        
+        if (response.ok && data.authenticated) {
+            clearInterval(qrPollInterval);
+            authToken = data.authToken;
+            currentUser = { username: data.username };
+            localStorage.setItem('authToken', authToken);
+            localStorage.setItem('currentUser', JSON.stringify(currentUser));
+            updateUI();
+            closeAuth();
+            document.querySelector('main').style.display = 'block';
+            loadSeries();
+        }
+    } catch (error) {
+        // Silent fail, keep polling
+    }
 }
 
 async function login() {
@@ -194,6 +249,12 @@ async function loadSeries() {
     }
 }
 
+function activateSearch() {
+    const searchInput = document.getElementById('searchInput');
+    searchInput.removeAttribute('readonly');
+    searchInput.focus();
+}
+
 async function searchVideos() {
     if (!authToken) return;
     
@@ -249,7 +310,10 @@ async function showSearchResults() {
 
 function hideSearchResults() {
     document.getElementById('searchResults').style.display = 'none';
-    document.getElementById('searchInput').value = '';
+    const searchInput = document.getElementById('searchInput');
+    searchInput.value = '';
+    searchInput.setAttribute('readonly', true);
+    searchInput.blur();
 }
 
 async function selectSeries(seriesId) {
@@ -439,6 +503,7 @@ function showSeriesModal(series) {
     series.videos.forEach((video, index) => {
         const item = document.createElement('div');
         item.className = 'video-item';
+        item.tabIndex = 0; // Make focusable for TV navigation
         
         let progressInfo = '';
         if (currentUser && watchProgress[series.id] && watchProgress[series.id][video.filename]) {
@@ -455,10 +520,27 @@ function showSeriesModal(series) {
             <span>${video.title}${progressInfo}</span>
             <button onclick="playVideo('${video.url}', '${video.filename}', '${video.title}', ${index})">▶ Play</button>
         `;
+        
+        // Add keyboard support for each video item
+        item.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                playVideo(video.url, video.filename, video.title, index);
+            }
+        });
+        
         videoList.appendChild(item);
     });
     
     modal.style.display = 'block';
+    
+    // Focus the modal content and trap focus
+    setTimeout(() => {
+        const firstItem = videoList.querySelector('.video-item');
+        if (firstItem) {
+            firstItem.focus();
+        }
+    }, 100);
 }
 
 function playVideo(url, filename, title, videoIndex = null) {
@@ -480,6 +562,10 @@ function playVideo(url, filename, title, videoIndex = null) {
     
     // Optimize video loading
     player.preload = 'metadata';
+    
+    // TV-specific enhancements
+    player.setAttribute('controls', 'true');
+    player.setAttribute('controlsList', 'nodownload');
     
     // Add loading error handling with retry
     let retryCount = 0;
@@ -527,6 +613,9 @@ function playVideo(url, filename, title, videoIndex = null) {
         
         // Auto-play when ready
         player.play().catch(() => {});
+        
+        // TV-specific: Enable fullscreen API
+        enableFullscreenSupport(player);
     };
     
     // Set source after event handlers
@@ -547,6 +636,38 @@ function playVideo(url, filename, title, videoIndex = null) {
     
     modal.style.display = 'block';
     document.getElementById('seriesModal').style.display = 'none';
+}
+
+// TV-specific fullscreen support
+function enableFullscreenSupport(player) {
+    // Ensure fullscreen button is visible
+    player.style.width = '100%';
+    player.style.height = '100%';
+    
+    // Add double-click to fullscreen
+    player.ondblclick = () => {
+        if (player.requestFullscreen) {
+            player.requestFullscreen();
+        } else if (player.webkitRequestFullscreen) {
+            player.webkitRequestFullscreen();
+        } else if (player.mozRequestFullScreen) {
+            player.mozRequestFullScreen();
+        } else if (player.msRequestFullscreen) {
+            player.msRequestFullscreen();
+        }
+    };
+    
+    // Handle fullscreen changes
+    document.onfullscreenchange = document.onwebkitfullscreenchange = document.onmozfullscreenchange = document.onmsfullscreenchange = () => {
+        const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+        if (isFullscreen) {
+            player.style.width = '100vw';
+            player.style.height = '100vh';
+        } else {
+            player.style.width = '100%';
+            player.style.height = '100%';
+        }
+    };
 }
 
 async function saveProgress(filename, currentTime, duration, completed = false) {
@@ -693,6 +814,88 @@ function closeSeries() {
     document.getElementById('seriesModal').style.display = 'none';
 }
 
+// TV remote control support
+document.addEventListener('keydown', (event) => {
+    const videoModal = document.getElementById('videoModal');
+    const seriesModal = document.getElementById('seriesModal');
+    const player = document.getElementById('videoPlayer');
+    
+    // Handle video modal controls
+    if (videoModal.style.display === 'block') {
+        switch(event.key) {
+            case 'ArrowLeft':
+                event.preventDefault();
+                if (player.currentTime > 10) {
+                    player.currentTime -= 10;
+                }
+                break;
+            case 'ArrowRight':
+                event.preventDefault();
+                if (player.currentTime < player.duration - 10) {
+                    player.currentTime += 10;
+                }
+                break;
+            case 'ArrowUp':
+                event.preventDefault();
+                playPreviousVideo();
+                break;
+            case 'ArrowDown':
+                event.preventDefault();
+                playNextVideo();
+                break;
+            case ' ':
+            case 'Enter':
+                event.preventDefault();
+                if (player.paused) {
+                    player.play();
+                } else {
+                    player.pause();
+                }
+                break;
+            case 'Escape':
+            case 'Backspace':
+                event.preventDefault();
+                closeVideo();
+                break;
+        }
+        return;
+    }
+    
+    // Handle series modal controls
+    if (seriesModal.style.display === 'block') {
+        switch(event.key) {
+            case 'Escape':
+            case 'Backspace':
+                event.preventDefault();
+                event.stopPropagation();
+                closeSeries();
+                break;
+            case 'ArrowUp':
+            case 'ArrowDown':
+            case 'ArrowLeft':
+            case 'ArrowRight':
+                // Prevent arrow keys from affecting background elements
+                event.preventDefault();
+                event.stopPropagation();
+                // Allow natural focus navigation within the modal
+                const focusableElements = seriesModal.querySelectorAll('.video-item, button');
+                const currentIndex = Array.from(focusableElements).indexOf(document.activeElement);
+                
+                if (event.key === 'ArrowDown' && currentIndex < focusableElements.length - 1) {
+                    focusableElements[currentIndex + 1].focus();
+                } else if (event.key === 'ArrowUp' && currentIndex > 0) {
+                    focusableElements[currentIndex - 1].focus();
+                }
+                break;
+            default:
+                // For other keys, still prevent bubbling to background
+                event.stopPropagation();
+                break;
+        }
+        return;
+    }
+});
+
 // Close modals and search when clicking outside
 window.onclick = function(event) {
     const authModal = document.getElementById('authModal');
@@ -709,7 +912,7 @@ window.onclick = function(event) {
     if (event.target === seriesModal) {
         closeSeries();
     }
-    if (!searchContainer.contains(event.target)) {
+    if (searchContainer && !searchContainer.contains(event.target)) {
         document.getElementById('searchResults').style.display = 'none';
     }
 }

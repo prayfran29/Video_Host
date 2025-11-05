@@ -16,8 +16,8 @@
 
             <div class="nav-actions">
                 <div class="search-container">
-                    <input type="text" id="searchInput" placeholder="Search videos..." class="search-input" oninput="showSearchResults()" autocomplete="off">
-                    <button class="search-btn" onclick="searchVideos()">🔍</button>
+                    <input type="text" id="searchInput" placeholder="Search videos..." class="search-input" oninput="showSearchResults()" autocomplete="off" readonly>
+                    <button class="search-btn" onclick="activateSearch()">🔍</button>
                     <div id="searchResults" class="search-results"></div>
                 </div>
                 <button class="profile-btn" onclick="toggleAuth()" id="profileButton">👤 Login</button>
@@ -59,7 +59,17 @@
                 <input type="text" id="loginUsername" placeholder="Username">
                 <input type="password" id="loginPassword" placeholder="Password">
                 <button onclick="login()">Login</button>
+                <button onclick="showQRLogin()" style="background:#333;margin-top:0.5rem;">📱 Login with QR Code</button>
                 <p>Don't have an account? <button type="button" onclick="showRegister()" style="background:none;border:none;color:#ff6600;text-decoration:underline;cursor:pointer;">Register</button></p>
+            </div>
+            <div id="qrLoginForm" style="display:none;">
+                <h3>QR Code Login</h3>
+                <div id="qrContainer" style="text-align:center;padding:2rem;">
+                    <div id="qrCode"></div>
+                    <p style="margin-top:1rem;color:#999;">Scan with your phone to login</p>
+                    <div id="qrStatus" style="margin-top:1rem;color:#ff6600;">Generating QR code...</div>
+                </div>
+                <button onclick="showLogin()" style="background:#333;">← Back to Login</button>
             </div>
             <div id="registerForm" style="display:none">
                 <h3>Register</h3>
