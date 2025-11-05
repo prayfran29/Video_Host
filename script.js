@@ -90,8 +90,8 @@ async function generateQRLogin() {
             // Show QR code and URL with TV compatibility
             const qrContainer = document.getElementById('qrCode');
             qrContainer.innerHTML = `
-                <div style="padding:2rem;border:2px solid #ff6600;text-align:center;background:#222;border-radius:8px;">
-                    <p style="margin:0;color:#ff6600;font-weight:bold;font-size:1.2rem;">📱 Scan or Visit</p>
+                <div style="padding:2rem;border:2px solid #0066ff;text-align:center;background:#222;border-radius:8px;">
+                    <p style="margin:0;color:#0066ff;font-weight:bold;font-size:1.2rem;">📱 Scan or Visit</p>
                     <div id="qrImageContainer" style="margin:1rem 0;">
                         <div style="color:#999;padding:2rem;">Loading QR Code...</div>
                     </div>
@@ -107,14 +107,14 @@ async function generateQRLogin() {
             qrImg.onload = function() {
                 document.getElementById('qrImageContainer').innerHTML = `
                     <img src="/api/qr/${data.token}" alt="QR Code" 
-                         style="border:4px solid #ff6600;border-radius:8px;background:#fff;padding:10px;max-width:250px;width:250px;height:250px;">
+                         style="border:4px solid #0066ff;border-radius:8px;background:#fff;padding:10px;max-width:250px;width:250px;height:250px;">
                 `;
             };
             qrImg.onerror = function() {
                 // Fallback for TV browsers that can't load the QR image
                 document.getElementById('qrImageContainer').innerHTML = `
-                    <div style="border:4px solid #ff6600;border-radius:8px;background:#333;padding:2rem;margin:1rem auto;max-width:250px;">
-                        <p style="color:#ff6600;font-size:1.1rem;margin:0;">📱 QR Code</p>
+                    <div style="border:4px solid #0066ff;border-radius:8px;background:#333;padding:2rem;margin:1rem auto;max-width:250px;">
+                        <p style="color:#0066ff;font-size:1.1rem;margin:0;">📱 QR Code</p>
                         <p style="color:#999;font-size:0.9rem;margin:0.5rem 0;">Use mobile device to scan</p>
                         <p style="color:#fff;font-size:0.8rem;margin:0;">Token: ${data.token}</p>
                     </div>
@@ -130,8 +130,8 @@ async function generateQRLogin() {
         } else {
             document.getElementById('qrStatus').textContent = 'Failed to generate QR code';
             document.getElementById('qrCode').innerHTML = `
-                <div style="padding:2rem;border:2px solid #ff6600;text-align:center;background:#222;border-radius:8px;">
-                    <p style="color:#ff6600;font-size:1.1rem;margin:0;">❌ QR Generation Failed</p>
+                <div style="padding:2rem;border:2px solid #0066ff;text-align:center;background:#222;border-radius:8px;">
+                    <p style="color:#0066ff;font-size:1.1rem;margin:0;">❌ QR Generation Failed</p>
                     <p style="color:#999;font-size:0.9rem;margin:1rem 0;">Please use username/password login</p>
                 </div>
             `;
@@ -636,6 +636,33 @@ function playVideo(url, filename, title, videoIndex = null) {
         document.getElementById('videoLoading').style.display = 'none';
     };
     
+    // Flag to prevent progress restoration during manual seeking
+    let progressRestored = false;
+    let userSeeking = false;
+    
+    // Function to restore progress
+    const restoreProgress = () => {
+        if (progressRestored || userSeeking) return;
+        if (currentUser && currentSeries && watchProgress[currentSeries.id] && watchProgress[currentSeries.id][filename]) {
+            const progress = watchProgress[currentSeries.id][filename];
+            const savedTime = progress.currentTime || 0;
+            if (savedTime > 0 && Math.abs(player.currentTime - savedTime) > 5) {
+                player.currentTime = savedTime;
+                progressRestored = true;
+            }
+        }
+    };
+    
+    // Track user seeking to prevent interference
+    player.onseeking = () => {
+        userSeeking = true;
+        progressRestored = true; // Prevent future auto-restoration
+    };
+    
+    player.onseeked = () => {
+        userSeeking = false;
+    };
+    
     // Setup audio track detection and force audio
     player.onloadedmetadata = () => {
         setupAudioTracks();
@@ -647,11 +674,7 @@ function playVideo(url, filename, title, videoIndex = null) {
         player.volume = 0.3;
         player.muted = false;
         
-        // Load saved progress before playing
-        if (currentUser && currentSeries && watchProgress[currentSeries.id] && watchProgress[currentSeries.id][filename]) {
-            const progress = watchProgress[currentSeries.id][filename];
-            player.currentTime = progress.currentTime || 0;
-        }
+        restoreProgress();
         
         // Auto-play when ready
         player.play().catch(() => {});
@@ -659,6 +682,22 @@ function playVideo(url, filename, title, videoIndex = null) {
         // TV-specific: Enable fullscreen API
         enableFullscreenSupport(player);
     };
+    
+    // Fallback progress restoration for TV browsers
+    player.oncanplay = () => {
+        restoreProgress();
+    };
+    
+    player.onloadeddata = () => {
+        restoreProgress();
+    };
+    
+    // Additional fallback after a short delay
+    setTimeout(() => {
+        if (player.readyState >= 2) {
+            restoreProgress();
+        }
+    }, 1000);
     
     // Set source after event handlers
     player.src = url;
@@ -680,45 +719,11 @@ function playVideo(url, filename, title, videoIndex = null) {
     document.getElementById('seriesModal').style.display = 'none';
 }
 
-// Fullscreen toggle function
-function toggleFullscreen() {
-    const player = document.getElementById('videoPlayer');
-    
-    if (document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement) {
-        // Exit fullscreen
-        if (document.exitFullscreen) {
-            document.exitFullscreen();
-        } else if (document.webkitExitFullscreen) {
-            document.webkitExitFullscreen();
-        } else if (document.mozCancelFullScreen) {
-            document.mozCancelFullScreen();
-        } else if (document.msExitFullscreen) {
-            document.msExitFullscreen();
-        }
-    } else {
-        // Enter fullscreen
-        if (player.requestFullscreen) {
-            player.requestFullscreen();
-        } else if (player.webkitRequestFullscreen) {
-            player.webkitRequestFullscreen();
-        } else if (player.mozRequestFullScreen) {
-            player.mozRequestFullScreen();
-        } else if (player.msRequestFullscreen) {
-            player.msRequestFullscreen();
-        }
-    }
-}
-
 // TV-specific fullscreen support
 function enableFullscreenSupport(player) {
     // Ensure fullscreen button is visible
     player.style.width = '100%';
     player.style.height = '100%';
-    
-    // Add double-click to fullscreen
-    player.ondblclick = () => {
-        toggleFullscreen();
-    };
     
     // Handle fullscreen changes
     document.onfullscreenchange = document.onwebkitfullscreenchange = document.onmozfullscreenchange = document.onmsfullscreenchange = () => {
@@ -733,8 +738,15 @@ function enableFullscreenSupport(player) {
     };
 }
 
+let lastProgressSave = 0;
+
 async function saveProgress(filename, currentTime, duration, completed = false) {
     if (!authToken || !currentSeries) return;
+    
+    // Throttle progress saves to every 10 seconds (except for completion)
+    const now = Date.now();
+    if (!completed && now - lastProgressSave < 10000) return;
+    lastProgressSave = now;
     
     try {
         await fetch('/api/progress', {
@@ -772,11 +784,16 @@ function closeVideo() {
         }
     }
     
+    // Memory cleanup
     player.pause();
     player.currentTime = 0;
     player.removeAttribute('src');
+    player.load(); // Force cleanup of video buffer
     player.innerHTML = '<source src="" type="video/mp4">';
     modal.style.display = 'none';
+    
+    // Force garbage collection hint
+    if (window.gc) window.gc();
 }
 
 async function backToSeries() {
@@ -877,6 +894,12 @@ function closeSeries() {
     document.getElementById('seriesModal').style.display = 'none';
 }
 
+function goHome() {
+    closeVideo();
+    // Reload the main page content
+    loadSeries();
+}
+
 // TV remote control support
 document.addEventListener('keydown', (event) => {
     const videoModal = document.getElementById('videoModal');
@@ -943,11 +966,7 @@ document.addEventListener('keydown', (event) => {
                 event.preventDefault();
                 closeVideo();
                 break;
-            case 'f':
-            case 'F':
-                event.preventDefault();
-                toggleFullscreen();
-                break;
+
         }
         return;
     }

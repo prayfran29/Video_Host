@@ -30,15 +30,18 @@ public class MainActivity extends Activity {
         webSettings.setAllowContentAccess(true);
         webSettings.setAllowFileAccessFromFileURLs(true);
         webSettings.setAllowUniversalAccessFromFileURLs(true);
-        webSettings.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        webSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
         webSettings.setDatabaseEnabled(true);
         webSettings.setLoadWithOverviewMode(true);
         webSettings.setUseWideViewPort(true);
         
-        // Clear cache to force reload of updated content
+        // Memory optimizations for TV
+        webSettings.setGeolocationEnabled(false);
+        webSettings.setSaveFormData(false);
+        webSettings.setSavePassword(false);
+        
+        // Clear cache only on first startup to get updates
         webView.clearCache(true);
-        webView.clearHistory();
-        webView.clearFormData();
         
         // Enable hardware acceleration for video
         webView.setLayerType(WebView.LAYER_TYPE_HARDWARE, null);

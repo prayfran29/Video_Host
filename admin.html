@@ -226,10 +226,11 @@
         loadPendingUsers();
         loadExistingUsers();
         
-        // Auto-refresh every 30 seconds
+        // Auto-refresh every 5 minutes to reduce server load
         setInterval(() => {
             loadPendingUsers();
             loadExistingUsers();
+        }, 300000); // 5 minutes
         }, 30000);
     </script>
 </body>
