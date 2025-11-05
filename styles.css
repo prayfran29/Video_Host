@@ -374,6 +374,11 @@ body {
     max-width: 600px;
 }
 
+.qr-modal {
+    max-width: 850px;
+    width: 95%;
+}
+
 .video-list {
     max-height: 400px;
     overflow-y: auto;
@@ -556,8 +561,26 @@ body {
     margin: 1rem 0;
 }
 
+.modal-content {
+    max-height: 90vh;
+    overflow-y: auto;
+    position: relative;
+}
+
+@media (max-height: 600px) {
+    .modal-content {
+        margin: 2% auto;
+        max-height: 96vh;
+        padding: 1rem;
+    }
+    
+    #qrContainer {
+        padding: 1rem;
+    }
+}
+
 #qrCode img {
-    border: 4px solid #fff;
+    border: 4px solid #ff6600;
     border-radius: 8px;
     background: #fff;
     padding: 10px;

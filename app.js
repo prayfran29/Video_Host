@@ -8,6 +8,7 @@ const helmet = require('helmet');
 const { body, validationResult, param } = require('express-validator');
 const crypto = require('crypto');
 const config = require('./config');
+const QRCode = require('qrcode');
 const app = express();
 
 // Trust proxy for Cloudflare tunnel (localhost only)
@@ -475,6 +476,34 @@ app.post('/api/qr-auth/:token', async (req, res) => {
     
     res.json({ message: 'Login successful' });
 });
+
+// Generate QR code image
+app.get('/api/qr/:token', async (req, res) => {
+    try {
+        const token = req.params.token;
+        const qrUrl = `${req.protocol}://${req.get('host')}/qr-auth?token=${token}`;
+        
+        const qrCodeDataURL = await QRCode.toDataURL(qrUrl, {
+            width: 200,
+            margin: 2,
+            color: {
+                dark: '#000000',
+                light: '#FFFFFF'
+            }
+        });
+        
+        const base64Data = qrCodeDataURL.replace(/^data:image\/png;base64,/, '');
+        const imgBuffer = Buffer.from(base64Data, 'base64');
+        
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'public, max-age=300');
+        res.send(imgBuffer);
+    } catch (error) {
+        res.status(500).send('QR generation failed');
+    }
+});
+
+
 
 // Get all series from videos directory with auth (supports genre folders)
 app.get('/api/series', auth, (req, res) => {
