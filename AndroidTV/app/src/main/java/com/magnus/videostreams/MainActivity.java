@@ -30,10 +30,15 @@ public class MainActivity extends Activity {
         webSettings.setAllowContentAccess(true);
         webSettings.setAllowFileAccessFromFileURLs(true);
         webSettings.setAllowUniversalAccessFromFileURLs(true);
-        webSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        webSettings.setCacheMode(WebSettings.LOAD_NO_CACHE);
         webSettings.setDatabaseEnabled(true);
         webSettings.setLoadWithOverviewMode(true);
         webSettings.setUseWideViewPort(true);
+        
+        // Clear cache to force reload of updated content
+        webView.clearCache(true);
+        webView.clearHistory();
+        webView.clearFormData();
         
         // Enable hardware acceleration for video
         webView.setLayerType(WebView.LAYER_TYPE_HARDWARE, null);

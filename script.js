@@ -87,12 +87,13 @@ async function generateQRLogin() {
         if (response.ok) {
             const qrUrl = `${window.location.origin}/qr-auth?token=${data.token}`;
             
-            // Show QR code and URL
-            document.getElementById('qrCode').innerHTML = `
+            // Show QR code and URL with TV compatibility
+            const qrContainer = document.getElementById('qrCode');
+            qrContainer.innerHTML = `
                 <div style="padding:2rem;border:2px solid #ff6600;text-align:center;background:#222;border-radius:8px;">
                     <p style="margin:0;color:#ff6600;font-weight:bold;font-size:1.2rem;">📱 Scan or Visit</p>
-                    <div style="margin:1rem 0;">
-                        <img src="/api/qr/${data.token}" alt="QR Code" style="border:4px solid #fff;border-radius:8px;background:#fff;padding:10px;max-width:200px;">
+                    <div id="qrImageContainer" style="margin:1rem 0;">
+                        <div style="color:#999;padding:2rem;">Loading QR Code...</div>
                     </div>
                     <p style="margin:1rem 0;font-size:0.9rem;color:#999;">Or visit this URL:</p>
                     <div style="background:#333;padding:1rem;border-radius:4px;margin:1rem 0;">
@@ -100,6 +101,26 @@ async function generateQRLogin() {
                     </div>
                 </div>
             `;
+            
+            // Load QR image with TV-compatible fallback
+            const qrImg = new Image();
+            qrImg.onload = function() {
+                document.getElementById('qrImageContainer').innerHTML = `
+                    <img src="/api/qr/${data.token}" alt="QR Code" 
+                         style="border:4px solid #ff6600;border-radius:8px;background:#fff;padding:10px;max-width:250px;width:250px;height:250px;">
+                `;
+            };
+            qrImg.onerror = function() {
+                // Fallback for TV browsers that can't load the QR image
+                document.getElementById('qrImageContainer').innerHTML = `
+                    <div style="border:4px solid #ff6600;border-radius:8px;background:#333;padding:2rem;margin:1rem auto;max-width:250px;">
+                        <p style="color:#ff6600;font-size:1.1rem;margin:0;">📱 QR Code</p>
+                        <p style="color:#999;font-size:0.9rem;margin:0.5rem 0;">Use mobile device to scan</p>
+                        <p style="color:#fff;font-size:0.8rem;margin:0;">Token: ${data.token}</p>
+                    </div>
+                `;
+            };
+            qrImg.src = `/api/qr/${data.token}`;
 
             
             document.getElementById('qrStatus').textContent = 'Waiting for login...';
@@ -108,6 +129,12 @@ async function generateQRLogin() {
             qrPollInterval = setInterval(() => checkQRLogin(data.token), 2000);
         } else {
             document.getElementById('qrStatus').textContent = 'Failed to generate QR code';
+            document.getElementById('qrCode').innerHTML = `
+                <div style="padding:2rem;border:2px solid #ff6600;text-align:center;background:#222;border-radius:8px;">
+                    <p style="color:#ff6600;font-size:1.1rem;margin:0;">❌ QR Generation Failed</p>
+                    <p style="color:#999;font-size:0.9rem;margin:1rem 0;">Please use username/password login</p>
+                </div>
+            `;
         }
     } catch (error) {
         document.getElementById('qrStatus').textContent = 'Error generating QR code';
@@ -653,14 +680,23 @@ function playVideo(url, filename, title, videoIndex = null) {
     document.getElementById('seriesModal').style.display = 'none';
 }
 
-// TV-specific fullscreen support
-function enableFullscreenSupport(player) {
-    // Ensure fullscreen button is visible
-    player.style.width = '100%';
-    player.style.height = '100%';
+// Fullscreen toggle function
+function toggleFullscreen() {
+    const player = document.getElementById('videoPlayer');
     
-    // Add double-click to fullscreen
-    player.ondblclick = () => {
+    if (document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement) {
+        // Exit fullscreen
+        if (document.exitFullscreen) {
+            document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+        } else if (document.mozCancelFullScreen) {
+            document.mozCancelFullScreen();
+        } else if (document.msExitFullscreen) {
+            document.msExitFullscreen();
+        }
+    } else {
+        // Enter fullscreen
         if (player.requestFullscreen) {
             player.requestFullscreen();
         } else if (player.webkitRequestFullscreen) {
@@ -670,6 +706,18 @@ function enableFullscreenSupport(player) {
         } else if (player.msRequestFullscreen) {
             player.msRequestFullscreen();
         }
+    }
+}
+
+// TV-specific fullscreen support
+function enableFullscreenSupport(player) {
+    // Ensure fullscreen button is visible
+    player.style.width = '100%';
+    player.style.height = '100%';
+    
+    // Add double-click to fullscreen
+    player.ondblclick = () => {
+        toggleFullscreen();
     };
     
     // Handle fullscreen changes
@@ -837,40 +885,68 @@ document.addEventListener('keydown', (event) => {
     
     // Handle video modal controls
     if (videoModal.style.display === 'block') {
+        const focusedElement = document.activeElement;
+        const isButtonFocused = focusedElement && focusedElement.tagName === 'BUTTON';
+        
         switch(event.key) {
             case 'ArrowLeft':
-                event.preventDefault();
-                if (player.currentTime > 10) {
-                    player.currentTime -= 10;
+                if (isButtonFocused) {
+                    // Allow normal button navigation
+                    return;
+                } else {
+                    event.preventDefault();
+                    if (player.currentTime > 10) {
+                        player.currentTime -= 10;
+                    }
                 }
                 break;
             case 'ArrowRight':
-                event.preventDefault();
-                if (player.currentTime < player.duration - 10) {
-                    player.currentTime += 10;
+                if (isButtonFocused) {
+                    // Allow normal button navigation
+                    return;
+                } else {
+                    event.preventDefault();
+                    if (player.currentTime < player.duration - 10) {
+                        player.currentTime += 10;
+                    }
                 }
                 break;
             case 'ArrowUp':
-                event.preventDefault();
-                playPreviousVideo();
-                break;
             case 'ArrowDown':
-                event.preventDefault();
-                playNextVideo();
+                if (isButtonFocused) {
+                    // Allow navigation between buttons
+                    return;
+                } else {
+                    // Prevent episode changes when video is focused
+                    event.preventDefault();
+                    event.stopPropagation();
+                    // Focus the first button to enable navigation
+                    const firstButton = videoModal.querySelector('button[tabindex="0"]');
+                    if (firstButton) {
+                        firstButton.focus();
+                    }
+                }
                 break;
             case ' ':
             case 'Enter':
-                event.preventDefault();
-                if (player.paused) {
-                    player.play();
-                } else {
-                    player.pause();
+                if (!isButtonFocused) {
+                    event.preventDefault();
+                    if (player.paused) {
+                        player.play();
+                    } else {
+                        player.pause();
+                    }
                 }
                 break;
             case 'Escape':
             case 'Backspace':
                 event.preventDefault();
                 closeVideo();
+                break;
+            case 'f':
+            case 'F':
+                event.preventDefault();
+                toggleFullscreen();
                 break;
         }
         return;
