@@ -251,7 +251,7 @@ function updateUI() {
     
     if (currentUser) {
         profileBtn.textContent = `👤 ${currentUser.username} (Logout)`;
-        profileBtn.style.backgroundColor = '#ff6600';
+        profileBtn.style.backgroundColor = '#0066ff';
         
         if (currentUser.username === 'Magnus') {
             adminBtn.style.display = 'inline-block';
