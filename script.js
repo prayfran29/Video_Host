@@ -340,6 +340,8 @@ function createSeriesCard(series, showProgress = false) {
     const card = document.createElement('div');
     card.className = 'content-card';
     
+    let lastWatchedEpisode = null;
+    
     if (showProgress && watchProgress[series.id]) {
         // Find last watched video
         const progressEntries = Object.entries(watchProgress[series.id]);
@@ -349,13 +351,29 @@ function createSeriesCard(series, showProgress = false) {
         }, { filename: null, time: 0, progress: null });
         
         if (lastWatched.filename) {
-            card.onclick = () => {
-                // Find video in series and play directly
-                const video = series.videos?.find(v => v.filename === lastWatched.filename);
+            // Find the episode title for display
+            const video = series.videos?.find(v => v.filename === lastWatched.filename);
+            if (video) {
+                lastWatchedEpisode = video.title || video.filename.replace(/\.[^/.]+$/, "").replace(/[._-]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            }
+            
+            card.onclick = async () => {
                 if (video) {
                     const videoIndex = series.videos.indexOf(video);
-                    currentSeries = series;
-                    playVideo(video.url, video.filename, video.title, videoIndex);
+                    // Load full series data to ensure proper episode titles
+                    try {
+                        const response = await fetch(`/api/series/${series.id}`, {
+                            headers: { 'Authorization': `Bearer ${authToken}` }
+                        });
+                        if (response.ok) {
+                            currentSeries = await response.json();
+                        } else {
+                            currentSeries = series;
+                        }
+                    } catch (error) {
+                        currentSeries = series;
+                    }
+                    playVideo(video.url, video.filename, video.title || video.filename.replace(/\.[^/.]+$/, ""), videoIndex);
                 } else {
                     openSeries(series);
                 }
@@ -368,9 +386,15 @@ function createSeriesCard(series, showProgress = false) {
     }
     
     let progressText = `${series.videoCount} videos`;
+    let episodeInfo = '';
+    
     if (showProgress && watchProgress[series.id]) {
         const completed = Object.values(watchProgress[series.id]).filter(v => v.completed).length;
         progressText = `${completed}/${series.videoCount} completed`;
+        
+        if (lastWatchedEpisode) {
+            episodeInfo = `<div class="episode-info">Last: ${lastWatchedEpisode}</div>`;
+        }
     }
     
     const genreText = series.genre && series.genre !== 'Root' ? `${series.genre} • ` : '';
@@ -380,6 +404,7 @@ function createSeriesCard(series, showProgress = false) {
         <div class="card-info">
             <h4>${series.title}</h4>
             <p>${genreText}${progressText}</p>
+            ${episodeInfo}
         </div>
     `;
     return card;
@@ -554,13 +579,52 @@ async function saveProgress(filename, currentTime, duration, completed = false) 
 function closeVideo() {
     const modal = document.getElementById('videoModal');
     const player = document.getElementById('videoPlayer');
+    
+    // Save progress before closing
+    if (currentUser && currentSeries && player.src) {
+        const filename = player.src.split('/').pop().split('?')[0];
+        if (filename && player.currentTime > 0) {
+            saveProgress(decodeURIComponent(filename), player.currentTime, player.duration);
+        }
+    }
+    
     player.pause();
+    player.currentTime = 0;
+    player.removeAttribute('src');
+    player.innerHTML = '<source src="" type="video/mp4">';
     modal.style.display = 'none';
 }
 
-function backToSeries() {
+async function backToSeries() {
     if (currentSeries) {
+        const player = document.getElementById('videoPlayer');
+        
+        // Save progress before stopping
+        if (currentUser && player.src) {
+            const filename = player.src.split('/').pop().split('?')[0];
+            if (filename && player.currentTime > 0) {
+                saveProgress(decodeURIComponent(filename), player.currentTime, player.duration);
+            }
+        }
+        
+        // Stop video completely
+        player.pause();
+        player.removeAttribute('src');
+        player.innerHTML = '<source src="" type="video/mp4">';
+        
         document.getElementById('videoModal').style.display = 'none';
+        
+        // Reload series data to ensure proper episode titles
+        try {
+            const response = await fetch(`/api/series/${currentSeries.id}`, {
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+            if (response.ok) {
+                currentSeries = await response.json();
+            }
+        } catch (error) {
+            // Silent fail, use existing data
+        }
         showSeriesModal(currentSeries);
     }
 }

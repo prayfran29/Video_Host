@@ -602,7 +602,7 @@ app.get('/api/series/*',
                 .map(v => ({
                     filename: v,
                     url: `/videos/${encodeURIComponent(seriesId)}/${encodeURIComponent(v)}`,
-                    title: v.replace(/\.[^/.]+$/, "")
+                    title: v.replace(/\.[^/.]+$/, "").replace(/[._-]/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
                 }));
             
             if (videos.length === 0) {

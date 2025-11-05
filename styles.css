@@ -278,6 +278,16 @@ body {
     font-size: 0.9rem;
 }
 
+.episode-info {
+    color: #ff6600;
+    font-size: 0.8rem;
+    margin-top: 0.5rem;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 /* Footer */
 .footer {
     background-color: #1a1a1a;
