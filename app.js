@@ -813,11 +813,7 @@ app.get('/api/progress', auth, (req, res) => {
 });
 
 // Adult page route with access control
-app.get('/adult', auth, (req, res) => {
-    const user = users.find(u => u.id === req.user.id);
-    if (!user || !user.adultAccess) {
-        return res.status(403).send('Access denied');
-    }
+app.get('/adult', (req, res) => {
     res.sendFile(path.join(__dirname, 'adult.html'));
 });
 

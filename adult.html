@@ -111,10 +111,46 @@
                     headers: { 'Authorization': `Bearer ${authToken}` }
                 });
                 const series = await response.json();
+                renderGenres(groupSeriesByGenre(series));
                 renderSeries(series);
             } catch (error) {
                 console.error('Failed to load adult series');
             }
+        }
+
+        function groupSeriesByGenre(series) {
+            const genres = {};
+            series.forEach(s => {
+                const genre = s.genre || 'Other';
+                if (!genres[genre]) genres[genre] = [];
+                genres[genre].push(s);
+            });
+            return genres;
+        }
+
+        function renderGenres(genres) {
+            const genreSections = document.getElementById('genreSections');
+            genreSections.innerHTML = '';
+            
+            Object.entries(genres).forEach(([genreName, seriesList]) => {
+                if (seriesList.length === 0) return;
+                
+                const section = document.createElement('div');
+                section.className = 'section';
+                section.innerHTML = `
+                    <h3>${genreName}</h3>
+                    <div class="genre-swimlane" id="genre-${genreName.replace(/\s+/g, '-')}">
+                    </div>
+                `;
+                
+                const swimlane = section.querySelector('.genre-swimlane');
+                seriesList.forEach(series => {
+                    const card = createSeriesCard(series);
+                    swimlane.appendChild(card);
+                });
+                
+                genreSections.appendChild(section);
+            });
         }
 
         function renderSeries(series) {

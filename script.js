@@ -267,6 +267,10 @@ function goToAdmin() {
     window.location.href = '/admin';
 }
 
+function goToAdult() {
+    window.location.href = '/adult';
+}
+
 // Series functionality
 async function loadSeries() {
     if (!authToken) return;
