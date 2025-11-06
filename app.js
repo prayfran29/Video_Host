@@ -28,12 +28,11 @@ app.use(helmet({
 }));
 
 // Rate limiting
-// Rate limiting disabled for development
-// const authLimiter = rateLimit({
-//     windowMs: 15 * 60 * 1000,
-//     max: 50,
-//     message: { error: 'Too many login attempts, try again later' }
-// });
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 50,
+    message: { error: 'Too many login attempts, try again later' }
+});
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static('.'));
 
@@ -50,7 +49,10 @@ app.get('/admin', (req, res) => {
     res.sendFile(path.join(__dirname, 'admin.html'));
 });
 
-const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
+const JWT_SECRET = process.env.JWT_SECRET || (() => {
+    console.warn('⚠️  Using random JWT secret - tokens will be invalid after restart!');
+    return crypto.randomBytes(64).toString('hex');
+})();
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ? Buffer.from(process.env.ENCRYPTION_KEY, 'hex') : crypto.randomBytes(32);
 const IV_LENGTH = 16;
 
@@ -95,6 +97,8 @@ let users = [];
 let watchProgress = {};
 let pendingUsers = [];
 let qrTokens = new Map(); // Store QR login tokens
+let blacklistedTokens = new Set(); // Store blacklisted JWT tokens
+let activeSessions = new Map(); // Store active user sessions
 
 if (fs.existsSync(usersFile)) {
     try {
@@ -147,10 +151,15 @@ if (!config.validateVideosPath()) {
     console.error('⚠️  Videos directory validation failed. Check permissions and path.');
 }
 
-// Auth middleware with token expiration
+// Auth middleware with token expiration and blacklist check
 const auth = (req, res, next) => {
     const token = req.header('Authorization')?.replace('Bearer ', '');
     if (!token) return res.status(401).json({ error: 'Access denied' });
+    
+    // Check if token is blacklisted
+    if (blacklistedTokens.has(token)) {
+        return res.status(401).json({ error: 'Token revoked' });
+    }
     
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
@@ -158,7 +167,14 @@ const auth = (req, res, next) => {
         if (Date.now() >= decoded.exp * 1000) {
             return res.status(401).json({ error: 'Token expired' });
         }
+        // Update session activity
+        if (decoded.sessionId && activeSessions.has(decoded.sessionId)) {
+            const session = activeSessions.get(decoded.sessionId);
+            session.lastActivity = new Date();
+        }
+        
         req.user = decoded;
+        req.token = token; // Store token for potential blacklisting
         next();
     } catch (error) {
         res.status(401).json({ error: 'Invalid token' });
@@ -252,7 +268,7 @@ function streamVideo(req, res, videoPath) {
 
 // Routes with validation
 app.post('/api/register', 
-    // authLimiter,
+    authLimiter,
     [
         body('username')
             .isLength({ min: 3, max: 30 })
@@ -309,7 +325,7 @@ app.post('/api/register',
 );
 
 app.post('/api/login',
-    // authLimiter,
+    authLimiter,
     [
         body('username').notEmpty().withMessage('Username required'),
         body('password').notEmpty().withMessage('Password required')
@@ -331,11 +347,21 @@ app.post('/api/login',
             return res.status(401).json({ error: 'Account pending approval' });
         }
         
+        const sessionId = crypto.randomUUID();
         const token = jwt.sign(
-            { id: user.id, username },
+            { id: user.id, username, sessionId },
             JWT_SECRET,
             { expiresIn: '24h' }
         );
+        
+        // Store active session
+        activeSessions.set(sessionId, {
+            userId: user.id,
+            username,
+            token,
+            createdAt: new Date(),
+            lastActivity: new Date()
+        });
         
         res.json({ token, username });
     }
@@ -812,8 +838,65 @@ app.get('/api/progress', auth, (req, res) => {
     res.json(watchProgress[userId] || {});
 });
 
+// Logout endpoint - blacklist token and remove session
+app.post('/api/logout', auth, (req, res) => {
+    blacklistedTokens.add(req.token);
+    
+    // Remove session if it exists
+    if (req.user.sessionId) {
+        activeSessions.delete(req.user.sessionId);
+    }
+    
+    res.json({ message: 'Logged out successfully' });
+});
+
+// Session cleanup job - remove expired sessions and tokens
+function cleanupExpiredSessions() {
+    const now = Date.now();
+    let cleanedSessions = 0;
+    let cleanedTokens = 0;
+    
+    // Clean expired sessions (24 hours of inactivity)
+    for (const [sessionId, session] of activeSessions.entries()) {
+        const inactiveTime = now - new Date(session.lastActivity).getTime();
+        if (inactiveTime > 24 * 60 * 60 * 1000) {
+            activeSessions.delete(sessionId);
+            cleanedSessions++;
+        }
+    }
+    
+    // Clean expired blacklisted tokens (keep for 24 hours after blacklisting)
+    const expiredTokens = [];
+    for (const token of blacklistedTokens) {
+        try {
+            const decoded = jwt.verify(token, JWT_SECRET, { ignoreExpiration: true });
+            if (now >= decoded.exp * 1000 + (24 * 60 * 60 * 1000)) {
+                expiredTokens.push(token);
+            }
+        } catch {
+            expiredTokens.push(token); // Remove invalid tokens
+        }
+    }
+    
+    expiredTokens.forEach(token => {
+        blacklistedTokens.delete(token);
+        cleanedTokens++;
+    });
+    
+    if (cleanedSessions > 0 || cleanedTokens > 0) {
+        console.log(`🧹 Cleaned ${cleanedSessions} expired sessions, ${cleanedTokens} expired tokens`);
+    }
+}
+
+// Run cleanup every hour
+setInterval(cleanupExpiredSessions, 60 * 60 * 1000);
+
 // Adult page route with access control
-app.get('/adult', (req, res) => {
+app.get('/adult', auth, (req, res) => {
+    const user = users.find(u => u.id === req.user.id);
+    if (req.user.username !== 'Magnus' && (!user || !user.adultAccess)) {
+        return res.status(403).json({ error: 'Adult access denied' });
+    }
     res.sendFile(path.join(__dirname, 'adult.html'));
 });
 
@@ -897,16 +980,41 @@ app.delete('/api/admin/users/:id', auth, adminAuth, (req, res) => {
     res.json({ message: 'User deleted' });
 });
 
-// Force HTTPS in production
-if (process.env.NODE_ENV === 'production') {
-    app.use((req, res, next) => {
-        if (req.header('x-forwarded-proto') !== 'https') {
-            res.redirect(`https://${req.header('host')}${req.url}`);
-        } else {
-            next();
+// Get active sessions (admin only)
+app.get('/api/admin/sessions', auth, adminAuth, (req, res) => {
+    const sessions = Array.from(activeSessions.values()).map(session => ({
+        userId: session.userId,
+        username: session.username,
+        createdAt: session.createdAt,
+        lastActivity: session.lastActivity
+    }));
+    res.json(sessions);
+});
+
+// Revoke all sessions for a user (admin only)
+app.post('/api/admin/revoke-sessions/:userId', auth, adminAuth, (req, res) => {
+    const userId = req.params.userId;
+    let revokedCount = 0;
+    
+    for (const [sessionId, session] of activeSessions.entries()) {
+        if (session.userId === userId) {
+            blacklistedTokens.add(session.token);
+            activeSessions.delete(sessionId);
+            revokedCount++;
         }
-    });
-}
+    }
+    
+    res.json({ message: `Revoked ${revokedCount} sessions` });
+});
+
+// Force HTTPS (except localhost for development)
+app.use((req, res, next) => {
+    const isLocalhost = req.hostname === 'localhost' || req.hostname === '127.0.0.1';
+    if (!isLocalhost && req.header('x-forwarded-proto') !== 'https') {
+        return res.redirect(`https://${req.header('host')}${req.url}`);
+    }
+    next();
+});
 
 // Error handling middleware
 app.use((err, req, res, next) => {
