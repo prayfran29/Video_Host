@@ -518,17 +518,14 @@ body {
     border: 1px solid #555;
     border-radius: 4px;
     color: #fff;
-    cursor: pointer;
+    cursor: text;
 }
 
-.modal-content input[readonly] {
+.modal-content input:focus {
+    outline: 3px solid #0066ff;
+    outline-offset: 2px;
     background: #444;
-    cursor: pointer;
-}
-
-.modal-content input[readonly]:focus {
-    outline: 2px solid #0066ff;
-    outline-offset: 1px;
+    border-color: #0066ff;
 }
 
 .modal-content button {

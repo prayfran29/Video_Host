@@ -56,8 +56,8 @@
             <span class="close" onclick="closeAuth()">&times;</span>
             <div id="loginForm">
                 <h3>Login</h3>
-                <input type="text" id="loginUsername" placeholder="Username" readonly onclick="this.removeAttribute('readonly')">
-                <input type="password" id="loginPassword" placeholder="Password" readonly onclick="this.removeAttribute('readonly')">
+                <input type="text" id="loginUsername" placeholder="Username" tabindex="0">
+                <input type="password" id="loginPassword" placeholder="Password" tabindex="0">
                 <button onclick="login()">Login</button>
                 <button onclick="showQRLogin()" style="background:#333;margin-top:0.5rem;">📱 Login with QR Code</button>
                 <p>Don't have an account? <button type="button" onclick="showRegister()" style="background:none;border:none;color:#0066ff;text-decoration:underline;cursor:pointer;">Register</button></p>
@@ -73,8 +73,8 @@
             </div>
             <div id="registerForm" style="display:none">
                 <h3>Register</h3>
-                <input type="text" id="registerUsername" placeholder="Username (3-30 chars, letters/numbers/_)" readonly onclick="this.removeAttribute('readonly')">
-                <input type="password" id="registerPassword" placeholder="Password (8+ chars, A-z, 0-9, @$!%*?&)" readonly onclick="this.removeAttribute('readonly')">
+                <input type="text" id="registerUsername" placeholder="Username (3-30 chars, letters/numbers/_)" tabindex="0">
+                <input type="password" id="registerPassword" placeholder="Password (8+ chars, A-z, 0-9, @$!%*?&)" tabindex="0">
                 <button onclick="register()">Register</button>
                 <p>Already have an account? <button type="button" onclick="showLogin()" style="background:none;border:none;color:#0066ff;text-decoration:underline;cursor:pointer;">Login</button></p>
                 <div class="password-requirements">
