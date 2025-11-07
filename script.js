@@ -414,6 +414,9 @@ function renderGenres(genres) {
         
         genreSections.appendChild(section);
     });
+    
+    // Update navigation after genres load
+    updateSwimlanes();
 }
 
 function renderSeries(series) {
@@ -444,11 +447,15 @@ function renderSeries(series) {
         const card = createSeriesCard(series);
         allSeriesGrid.appendChild(card);
     });
+    
+    // Update navigation after content loads
+    updateSwimlanes();
 }
 
 function createSeriesCard(series, showProgress = false) {
     const card = document.createElement('div');
     card.className = 'content-card';
+    card.tabIndex = 0; // Make focusable for TV navigation
     
     let lastWatchedEpisode = null;
     
@@ -725,21 +732,58 @@ function playVideo(url, filename, title, videoIndex = null) {
 
 // TV-specific fullscreen support
 function enableFullscreenSupport(player) {
-    // Ensure fullscreen button is visible
-    player.style.width = '100%';
-    player.style.height = '100%';
+    // Add fullscreen button to video controls
+    const videoModal = document.getElementById('videoModal');
+    const controlsDiv = videoModal.querySelector('.video-controls');
+    
+    // Check if fullscreen button already exists
+    if (!document.getElementById('fullscreenBtn')) {
+        const fullscreenBtn = document.createElement('button');
+        fullscreenBtn.id = 'fullscreenBtn';
+        fullscreenBtn.textContent = '⛶ Fullscreen';
+        fullscreenBtn.tabIndex = 0;
+        fullscreenBtn.onclick = () => toggleFullscreen(player);
+        controlsDiv.insertBefore(fullscreenBtn, controlsDiv.firstChild);
+    }
     
     // Handle fullscreen changes
     document.onfullscreenchange = document.onwebkitfullscreenchange = document.onmozfullscreenchange = document.onmsfullscreenchange = () => {
         const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
-        if (isFullscreen) {
-            player.style.width = '100vw';
-            player.style.height = '100vh';
-        } else {
-            player.style.width = '100%';
-            player.style.height = '100%';
+        const btn = document.getElementById('fullscreenBtn');
+        if (btn) {
+            btn.textContent = isFullscreen ? '⛶ Exit Fullscreen' : '⛶ Fullscreen';
         }
     };
+}
+
+// Toggle fullscreen function with cross-browser support
+function toggleFullscreen(player) {
+    const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+    
+    if (isFullscreen) {
+        // Exit fullscreen
+        if (document.exitFullscreen) {
+            document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+        } else if (document.mozCancelFullScreen) {
+            document.mozCancelFullScreen();
+        } else if (document.msExitFullscreen) {
+            document.msExitFullscreen();
+        }
+    } else {
+        // Enter fullscreen
+        const element = player.parentElement || player;
+        if (element.requestFullscreen) {
+            element.requestFullscreen();
+        } else if (element.webkitRequestFullscreen) {
+            element.webkitRequestFullscreen();
+        } else if (element.mozRequestFullScreen) {
+            element.mozRequestFullScreen();
+        } else if (element.msRequestFullscreen) {
+            element.msRequestFullscreen();
+        }
+    }
 }
 
 let lastProgressSave = 0;
@@ -904,6 +948,68 @@ function goHome() {
     loadSeries();
 }
 
+// TV navigation state
+let currentSwimlaneIndex = -1;
+let swimlanes = [];
+
+// Update swimlanes list when content loads
+function updateSwimlanes() {
+    swimlanes = [];
+    const continueWatching = document.getElementById('continueWatchingGrid');
+    const genreSections = document.querySelectorAll('.genre-swimlane');
+    const allSeries = document.getElementById('allSeriesGrid');
+    
+    if (continueWatching && continueWatching.children.length > 0) {
+        swimlanes.push({ element: continueWatching, name: 'Continue Watching' });
+    }
+    genreSections.forEach(section => {
+        if (section.children.length > 0) {
+            const sectionTitle = section.closest('.section')?.querySelector('h3')?.textContent || 'Genre';
+            swimlanes.push({ element: section, name: sectionTitle });
+        }
+    });
+    if (allSeries && allSeries.children.length > 0) {
+        swimlanes.push({ element: allSeries, name: 'All Series' });
+    }
+}
+
+// Focus swimlane function
+function focusSwimlane(index) {
+    if (index < 0 || index >= swimlanes.length) return;
+    
+    // Remove previous focus
+    document.querySelectorAll('.swimlane-focused').forEach(el => {
+        el.classList.remove('swimlane-focused');
+    });
+    
+    currentSwimlaneIndex = index;
+    const swimlane = swimlanes[index];
+    swimlane.element.classList.add('swimlane-focused');
+    
+    // Find the section container to include the title
+    const section = swimlane.element.closest('.section');
+    const targetElement = section || swimlane.element;
+    
+    // Get the title element for better positioning
+    const titleElement = section?.querySelector('h3');
+    if (titleElement) {
+        titleElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+        targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    
+    // Add delay to account for fixed header
+    setTimeout(() => {
+        window.scrollBy(0, -120); // Adjust for header height + padding
+    }, 300);
+    
+    // Focus first card in swimlane
+    const firstCard = swimlane.element.querySelector('.content-card');
+    if (firstCard) {
+        firstCard.focus();
+    }
+}
+
 // TV remote control support
 document.addEventListener('keydown', (event) => {
     const videoModal = document.getElementById('videoModal');
@@ -968,9 +1074,72 @@ document.addEventListener('keydown', (event) => {
             case 'Escape':
             case 'Backspace':
                 event.preventDefault();
-                closeVideo();
+                // Exit fullscreen first if in fullscreen mode
+                const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+                if (isFullscreen) {
+                    if (document.exitFullscreen) document.exitFullscreen();
+                    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+                    else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
+                    else if (document.msExitFullscreen) document.msExitFullscreen();
+                } else {
+                    closeVideo();
+                }
+                break;
+            case 'f':
+            case 'F':
+                if (!isButtonFocused) {
+                    event.preventDefault();
+                    toggleFullscreen(player);
+                }
                 break;
 
+        }
+        return;
+    }
+    
+    // Handle main page navigation
+    const authModal = document.getElementById('authModal');
+    if (videoModal.style.display !== 'block' && seriesModal.style.display !== 'block' && authModal.style.display !== 'block') {
+        switch(event.key) {
+            case 'ArrowDown':
+                event.preventDefault();
+                updateSwimlanes();
+                if (currentSwimlaneIndex < swimlanes.length - 1) {
+                    focusSwimlane(currentSwimlaneIndex + 1);
+                } else {
+                    focusSwimlane(0); // Loop to top
+                }
+                break;
+            case 'ArrowUp':
+                event.preventDefault();
+                updateSwimlanes();
+                if (currentSwimlaneIndex > 0) {
+                    focusSwimlane(currentSwimlaneIndex - 1);
+                } else {
+                    focusSwimlane(swimlanes.length - 1); // Loop to bottom
+                }
+                break;
+            case 'ArrowLeft':
+            case 'ArrowRight':
+                // Handle horizontal navigation within swimlane
+                if (currentSwimlaneIndex >= 0) {
+                    const currentSwimlane = swimlanes[currentSwimlaneIndex];
+                    const cards = currentSwimlane.element.querySelectorAll('.content-card');
+                    const focusedCard = document.activeElement;
+                    const currentCardIndex = Array.from(cards).indexOf(focusedCard);
+                    
+                    if (currentCardIndex >= 0) {
+                        event.preventDefault();
+                        let nextIndex;
+                        if (event.key === 'ArrowRight') {
+                            nextIndex = currentCardIndex < cards.length - 1 ? currentCardIndex + 1 : 0;
+                        } else {
+                            nextIndex = currentCardIndex > 0 ? currentCardIndex - 1 : cards.length - 1;
+                        }
+                        cards[nextIndex].focus();
+                    }
+                }
+                break;
         }
         return;
     }

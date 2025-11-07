@@ -4,8 +4,12 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.view.KeyEvent;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
 
 public class MainActivity extends Activity {
     private WebView webView;
@@ -62,6 +66,61 @@ public class MainActivity extends Activity {
                 }
             }
         });
+        
+        // Enable fullscreen video support
+        webView.setWebChromeClient(new WebChromeClient() {
+            private View customView;
+            private CustomViewCallback customViewCallback;
+            
+            @Override
+            public void onShowCustomView(View view, CustomViewCallback callback) {
+                if (customView != null) {
+                    onHideCustomView();
+                    return;
+                }
+                
+                customView = view;
+                customViewCallback = callback;
+                
+                // Hide system UI for fullscreen
+                getWindow().getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_FULLSCREEN |
+                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                );
+                
+                // Add custom view to activity
+                FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                );
+                
+                FrameLayout container = findViewById(android.R.id.content);
+                container.addView(customView, params);
+                webView.setVisibility(View.GONE);
+            }
+            
+            @Override
+            public void onHideCustomView() {
+                if (customView == null) return;
+                
+                // Show system UI
+                getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+                
+                // Remove custom view
+                FrameLayout container = findViewById(android.R.id.content);
+                container.removeView(customView);
+                customView = null;
+                
+                // Show WebView again
+                webView.setVisibility(View.VISIBLE);
+                
+                if (customViewCallback != null) {
+                    customViewCallback.onCustomViewHidden();
+                    customViewCallback = null;
+                }
+            }
+        });
     }
 
     @Override
@@ -76,6 +135,17 @@ public class MainActivity extends Activity {
                 // Let WebView handle navigation
                 return super.onKeyDown(keyCode, event);
             case KeyEvent.KEYCODE_BACK:
+                // Handle fullscreen exit first
+                WebChromeClient chromeClient = (WebChromeClient) webView.getWebChromeClient();
+                if (chromeClient != null) {
+                    try {
+                        chromeClient.onHideCustomView();
+                        return true;
+                    } catch (Exception e) {
+                        // Not in fullscreen, continue with normal back behavior
+                    }
+                }
+                
                 if (webView.canGoBack()) {
                     webView.goBack();
                     return true;
