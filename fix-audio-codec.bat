@@ -11,16 +11,16 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-set "input_dir=videos\Anime\Danny Phantom"
+set "input_dir=D:\videos\Comedy TV\South Park"
 
 if not exist "%input_dir%" (
-    echo Danny Phantom directory not found at: %input_dir%
+    echo South Park directory not found at: %input_dir%
     pause
     exit /b 1
 )
 
 echo.
-echo Fixing audio codecs in Danny Phantom MP4 files
+echo Fixing audio codecs in South Park MP4 files
 echo This will create fixed versions with _fixed suffix
 echo.
 
