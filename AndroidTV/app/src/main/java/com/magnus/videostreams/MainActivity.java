@@ -44,8 +44,8 @@ public class MainActivity extends Activity {
         webSettings.setSaveFormData(false);
         webSettings.setSavePassword(false);
         
-        // Clear cache only on first startup to get updates
-        webView.clearCache(true);
+        // Clear cache less aggressively to preserve icons and performance
+        webView.clearCache(false);
         
         // Enable hardware acceleration for video
         webView.setLayerType(WebView.LAYER_TYPE_HARDWARE, null);

@@ -254,9 +254,11 @@ body {
 .content-card:hover,
 .content-card:focus {
     transform: translateY(-5px);
-    box-shadow: 0 10px 25px rgba(0, 102, 255, 0.3);
-    outline: 3px solid #0066ff;
-    outline-offset: 2px;
+    box-shadow: 0 10px 25px rgba(0, 102, 255, 0.8);
+    outline: 4px solid #0066ff;
+    outline-offset: 4px;
+    border: 2px solid #ffffff;
+    background-color: #2a2a2a;
 }
 
 .swimlane-focused {
@@ -423,9 +425,11 @@ body {
 }
 
 .video-item:focus {
-    outline: 3px solid #0066ff;
-    outline-offset: 2px;
-    background: #333;
+    outline: 4px solid #0066ff !important;
+    outline-offset: 4px !important;
+    background: #444 !important;
+    box-shadow: 0 0 15px rgba(0, 102, 255, 0.6) !important;
+    transform: scale(1.02) !important;
 }
 
 .video-item:hover {
@@ -833,9 +837,13 @@ body {
     /* Better focus indicators for TV navigation */
     .video-controls button:focus,
     .content-card:focus,
-    .profile-btn:focus {
-        outline: 3px solid #0066ff;
-        outline-offset: 2px;
+    .profile-btn:focus,
+    .search-btn:focus,
+    .modal-content button:focus {
+        outline: 4px solid #0066ff !important;
+        outline-offset: 4px !important;
+        box-shadow: 0 0 20px rgba(0, 102, 255, 0.8) !important;
+        background-color: #333 !important;
     }
 }
 

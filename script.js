@@ -426,8 +426,15 @@ function renderGenres(genres) {
         genreSections.appendChild(section);
     });
     
-    // Update navigation after genres load
+    // Update navigation after genres load and focus first swimlane
     updateSwimlanes();
+    
+    // Auto-focus first swimlane for TV navigation
+    setTimeout(() => {
+        if (swimlanes.length > 0) {
+            focusSwimlane(0);
+        }
+    }, 100);
 }
 
 function renderSeries(series) {
@@ -459,8 +466,15 @@ function renderSeries(series) {
         allSeriesGrid.appendChild(card);
     });
     
-    // Update navigation after content loads
+    // Update navigation after content loads and focus first swimlane
     updateSwimlanes();
+    
+    // Auto-focus first swimlane for TV navigation
+    setTimeout(() => {
+        if (swimlanes.length > 0) {
+            focusSwimlane(0);
+        }
+    }, 100);
 }
 
 function createSeriesCard(series, showProgress = false) {

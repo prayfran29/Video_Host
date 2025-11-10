@@ -1,7 +1,19 @@
 tunnel: hackhost-tunnel
 # credentials-file will be auto-detected
 
+# Tunnel optimizations
+http2-origin: true
+no-chunked-encoding: false
+
 ingress:
   - hostname: magnushackhost.win
     service: http://127.0.0.1:3000
+    originRequest:
+      httpHostHeader: magnushackhost.win
+      noTLSVerify: true
+      connectTimeout: 30s
+      tlsTimeout: 10s
+      tcpKeepAlive: 30s
+      keepAliveTimeout: 90s
+      keepAliveConnections: 100
   - service: http_status:404
