@@ -281,6 +281,11 @@ async function loadSeries() {
             fetch('/api/genres', { headers: { 'Authorization': `Bearer ${authToken}` } })
         ]);
         
+        if (seriesResponse.status === 401 || genresResponse.status === 401) {
+            handleSessionExpired();
+            return;
+        }
+        
         const series = await seriesResponse.json();
         const genres = await genresResponse.json();
         
@@ -332,6 +337,12 @@ async function showSearchResults() {
         const response = await fetch(`/api/series?search=${encodeURIComponent(query)}`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
+        
+        if (response.status === 401) {
+            handleSessionExpired();
+            return;
+        }
+        
         const series = await response.json();
         
         if (series.length === 0) {
@@ -612,6 +623,9 @@ function playVideo(url, filename, title, videoIndex = null) {
     
     videoTitle.textContent = title;
     details.textContent = currentSeries ? currentSeries.title : '';
+    
+    // Load video description
+    loadVideoDescription(title);
     
     // Optimize video loading
     player.preload = 'metadata';
@@ -1178,6 +1192,32 @@ document.addEventListener('keydown', (event) => {
         return;
     }
 });
+
+// Handle session expiration
+function handleSessionExpired() {
+    currentUser = null;
+    authToken = null;
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('currentUser');
+    updateUI();
+    showLoginModal();
+}
+
+// Load video description from search API
+async function loadVideoDescription(title) {
+    const descriptionDiv = document.getElementById('videoDescription');
+    descriptionDiv.innerHTML = '<div style="color: #666;">Loading description...</div>';
+    
+    try {
+        const response = await fetch(`/api/video-description/${encodeURIComponent(title)}`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        const data = await response.json();
+        descriptionDiv.innerHTML = `<p>${data.description}</p>`;
+    } catch (error) {
+        descriptionDiv.innerHTML = '';
+    }
+}
 
 // Close modals and search when clicking outside
 window.onclick = function(event) {

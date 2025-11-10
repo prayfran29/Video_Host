@@ -758,6 +758,36 @@ app.get('/api/genres', auth, (req, res) => {
     }
 });
 
+// Get video description from search API
+app.get('/api/video-description/:title', auth, async (req, res) => {
+    try {
+        const title = decodeURIComponent(req.params.title);
+        const cleanTitle = title.replace(/\.[^/.]+$/, "").replace(/[._-]/g, ' ');
+        
+        // Use DuckDuckGo Instant Answer API (free, no key required)
+        const searchUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(cleanTitle)}&format=json&no_html=1&skip_disambig=1`;
+        
+        const response = await fetch(searchUrl);
+        const data = await response.json();
+        
+        let description = data.Abstract || data.AbstractText || '';
+        
+        // If no abstract, try the first related topic
+        if (!description && data.RelatedTopics && data.RelatedTopics.length > 0) {
+            description = data.RelatedTopics[0].Text || '';
+        }
+        
+        // Fallback: generic description
+        if (!description) {
+            description = `Video: ${cleanTitle}`;
+        }
+        
+        res.json({ description: description.substring(0, 300) }); // Limit length
+    } catch (error) {
+        res.json({ description: `Video: ${req.params.title.replace(/\.[^/.]+$/, "").replace(/[._-]/g, ' ')}` });
+    }
+});
+
 // Get specific series details with validation
 app.get('/api/series/*', 
     auth,
