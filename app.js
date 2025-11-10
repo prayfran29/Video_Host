@@ -241,18 +241,22 @@ function streamVideo(req, res, videoPath) {
     const fileSize = stat.size;
     const range = req.headers.range;
     
-    // Set caching headers
+    // Optimized caching and streaming headers
     res.set({
         'Accept-Ranges': 'bytes',
         'Content-Type': 'video/mp4',
-        'Cache-Control': 'public, max-age=86400',
-        'ETag': `"${stat.mtime.getTime()}-${fileSize}"`
+        'Cache-Control': 'public, max-age=2592000', // 30 days
+        'ETag': `"${stat.mtime.getTime()}-${fileSize}"`,
+        'Connection': 'keep-alive',
+        'X-Content-Type-Options': 'nosniff'
     });
     
     if (range) {
         const parts = range.replace(/bytes=/, "").split("-");
         const start = parseInt(parts[0], 10);
-        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        // Optimize chunk size for streaming (max 1MB chunks)
+        const maxChunkSize = 1024 * 1024;
+        const end = parts[1] ? parseInt(parts[1], 10) : Math.min(start + maxChunkSize - 1, fileSize - 1);
         const chunksize = (end - start) + 1;
         
         res.status(206).set({

@@ -557,6 +557,13 @@ function createSeriesCard(series, showProgress = false) {
         });
     });
     
+    // Also remove on mouse over for consistency
+    card.addEventListener('mouseenter', () => {
+        document.querySelectorAll('.swimlane-focused').forEach(el => {
+            el.classList.remove('swimlane-focused');
+        });
+    });
+    
     return card;
 }
 
@@ -649,12 +656,25 @@ function playVideo(url, filename, title, videoIndex = null) {
     // Load video description
     loadVideoDescription(title);
     
-    // Optimize video loading
-    player.preload = 'metadata';
+    // Optimize video loading for streaming
+    player.preload = 'none'; // Don't preload to save bandwidth
+    player.setAttribute('playsinline', 'true');
+    player.setAttribute('webkit-playsinline', 'true');
     
     // TV-specific enhancements
     player.setAttribute('controls', 'true');
     player.setAttribute('controlsList', 'nodownload');
+    
+    // Optimize for streaming
+    if (player.canPlayType) {
+        // Prefer hardware-accelerated formats
+        const formats = ['video/mp4; codecs="avc1.42E01E"', 'video/webm; codecs="vp8"'];
+        formats.forEach(format => {
+            if (player.canPlayType(format) === 'probably') {
+                console.log('Optimized format supported:', format);
+            }
+        });
+    }
     
     // Add loading error handling with retry
     let retryCount = 0;
@@ -868,16 +888,21 @@ function closeVideo() {
         }
     }
     
-    // Memory cleanup
+    // Aggressive memory cleanup for TV performance
     player.pause();
     player.currentTime = 0;
     player.removeAttribute('src');
-    player.load(); // Force cleanup of video buffer
-    player.innerHTML = '<source src="" type="video/mp4">';
+    player.removeAttribute('poster');
+    
+    // Clear all event listeners
+    const newPlayer = player.cloneNode(true);
+    player.parentNode.replaceChild(newPlayer, player);
+    
     modal.style.display = 'none';
     
-    // Force garbage collection hint
+    // Force garbage collection hints
     if (window.gc) window.gc();
+    if (window.CollectGarbage) window.CollectGarbage();
 }
 
 async function backToSeries() {
@@ -1033,6 +1058,12 @@ function focusSwimlane(index) {
     // Focus first card in swimlane
     const firstCard = swimlane.element.querySelector('.content-card');
     if (firstCard) {
+        // Remove swimlane border when focusing first card
+        setTimeout(() => {
+            document.querySelectorAll('.swimlane-focused').forEach(el => {
+                el.classList.remove('swimlane-focused');
+            });
+        }, 10);
         firstCard.focus();
     }
 }
@@ -1187,6 +1218,12 @@ document.addEventListener('keydown', (event) => {
                         } else {
                             nextIndex = currentCardIndex > 0 ? currentCardIndex - 1 : cards.length - 1;
                         }
+                        
+                        // Remove swimlane border before focusing card
+                        document.querySelectorAll('.swimlane-focused').forEach(el => {
+                            el.classList.remove('swimlane-focused');
+                        });
+                        
                         cards[nextIndex].focus();
                     }
                 }
