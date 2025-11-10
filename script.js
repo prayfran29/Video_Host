@@ -1000,22 +1000,13 @@ function focusSwimlane(index) {
     const swimlane = swimlanes[index];
     swimlane.element.classList.add('swimlane-focused');
     
-    // Find the section container to include the title
+    // Instant scroll without animation
     const section = swimlane.element.closest('.section');
-    const targetElement = section || swimlane.element;
-    
-    // Get the title element for better positioning
     const titleElement = section?.querySelector('h3');
     if (titleElement) {
-        titleElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    } else {
-        targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        titleElement.scrollIntoView({ behavior: 'auto', block: 'start' });
+        window.scrollBy(0, -120);
     }
-    
-    // Add delay to account for fixed header
-    setTimeout(() => {
-        window.scrollBy(0, -120); // Adjust for header height + padding
-    }, 300);
     
     // Focus first card in swimlane
     const firstCard = swimlane.element.querySelector('.content-card');

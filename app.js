@@ -97,6 +97,28 @@ let users = [];
 let watchProgress = {};
 let pendingUsers = [];
 let qrTokens = new Map(); // Store QR login tokens
+const qrTokensFile = path.join(dataDir, 'qr-tokens.json');
+
+// Load QR tokens from file
+if (fs.existsSync(qrTokensFile)) {
+    try {
+        const data = fs.readFileSync(qrTokensFile, 'utf8');
+        const tokenData = JSON.parse(data);
+        qrTokens = new Map(Object.entries(tokenData));
+    } catch (error) {
+        console.error('Failed to load QR tokens file');
+    }
+}
+
+// Save QR tokens to file
+function saveQRTokens() {
+    try {
+        const tokenData = Object.fromEntries(qrTokens);
+        fs.writeFileSync(qrTokensFile, JSON.stringify(tokenData, null, 2));
+    } catch (error) {
+        console.error('Failed to save QR tokens');
+    }
+}
 let blacklistedTokens = new Set(); // Store blacklisted JWT tokens
 let activeSessions = new Map(); // Store active user sessions
 
@@ -383,6 +405,7 @@ app.post('/api/qr-login', (req, res) => {
         }
     }
     
+    saveQRTokens();
     res.json({ token });
 });
 
@@ -500,6 +523,7 @@ app.post('/api/qr-auth/:token', async (req, res) => {
         username
     });
     
+    saveQRTokens();
     res.json({ message: 'Login successful' });
 });
 

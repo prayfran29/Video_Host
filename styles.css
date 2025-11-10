@@ -193,7 +193,8 @@ body {
     gap: 1.5rem;
     overflow-x: auto;
     padding-bottom: 1rem;
-    scroll-behavior: smooth;
+    scroll-behavior: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .genre-swimlane::-webkit-scrollbar {
@@ -221,7 +222,8 @@ body {
     gap: 1.5rem;
     overflow-x: auto;
     padding-bottom: 1rem;
-    scroll-behavior: smooth;
+    scroll-behavior: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .continue-watching-swimlane::-webkit-scrollbar {
@@ -242,10 +244,11 @@ body {
     background-color: #1a1a1a;
     border-radius: 8px;
     overflow: hidden;
-    transition: transform 0.3s, box-shadow 0.3s;
+    transition: transform 0.1s ease-out, box-shadow 0.1s ease-out;
     cursor: pointer;
     outline: none;
     position: relative;
+    will-change: transform;
 }
 
 .content-card:hover,
