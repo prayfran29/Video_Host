@@ -3,5 +3,5 @@ tunnel: hackhost-tunnel
 
 ingress:
   - hostname: magnushackhost.win
-    service: http://localhost:3000
+    service: http://127.0.0.1:3000
   - service: http_status:404
