@@ -549,6 +549,14 @@ function createSeriesCard(series, showProgress = false) {
             ${episodeInfo}
         </div>
     `;
+    
+    // Remove swimlane border when individual card gets focus
+    card.addEventListener('focus', () => {
+        document.querySelectorAll('.swimlane-focused').forEach(el => {
+            el.classList.remove('swimlane-focused');
+        });
+    });
+    
     return card;
 }
 
@@ -1123,7 +1131,10 @@ document.addEventListener('keydown', (event) => {
             case 'ArrowDown':
                 event.preventDefault();
                 updateSwimlanes();
-                if (currentSwimlaneIndex < swimlanes.length - 1) {
+                if (currentSwimlaneIndex === -1) {
+                    // Return to first swimlane from header
+                    focusSwimlane(0);
+                } else if (currentSwimlaneIndex < swimlanes.length - 1) {
                     focusSwimlane(currentSwimlaneIndex + 1);
                 } else {
                     focusSwimlane(0); // Loop to top
@@ -1135,13 +1146,34 @@ document.addEventListener('keydown', (event) => {
                 if (currentSwimlaneIndex > 0) {
                     focusSwimlane(currentSwimlaneIndex - 1);
                 } else {
-                    focusSwimlane(swimlanes.length - 1); // Loop to bottom
+                    // Focus header buttons when at top swimlane
+                    const searchBtn = document.querySelector('.search-btn');
+                    if (searchBtn) {
+                        searchBtn.focus();
+                        currentSwimlaneIndex = -1; // Indicate we're in header
+                    }
                 }
                 break;
             case 'ArrowLeft':
             case 'ArrowRight':
-                // Handle horizontal navigation within swimlane
-                if (currentSwimlaneIndex >= 0) {
+                if (currentSwimlaneIndex === -1) {
+                    // Navigate between header buttons
+                    event.preventDefault();
+                    const headerButtons = document.querySelectorAll('.search-btn, .profile-btn, #adminButton');
+                    const focusedElement = document.activeElement;
+                    const currentIndex = Array.from(headerButtons).indexOf(focusedElement);
+                    
+                    if (currentIndex >= 0) {
+                        let nextIndex;
+                        if (event.key === 'ArrowRight') {
+                            nextIndex = currentIndex < headerButtons.length - 1 ? currentIndex + 1 : 0;
+                        } else {
+                            nextIndex = currentIndex > 0 ? currentIndex - 1 : headerButtons.length - 1;
+                        }
+                        headerButtons[nextIndex].focus();
+                    }
+                } else if (currentSwimlaneIndex >= 0) {
+                    // Handle horizontal navigation within swimlane
                     const currentSwimlane = swimlanes[currentSwimlaneIndex];
                     const cards = currentSwimlane.element.querySelectorAll('.content-card');
                     const focusedCard = document.activeElement;

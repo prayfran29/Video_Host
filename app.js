@@ -443,8 +443,8 @@ app.get('/qr-auth', (req, res) => {
                 .container { max-width: 400px; margin: 0 auto; text-align: center; }
                 input, button { width: 100%; padding: 12px; margin: 8px 0; border: none; border-radius: 4px; }
                 input { background: #333; color: #fff; }
-                button { background: #ff6600; color: #fff; cursor: pointer; }
-                button:hover { background: #e55a00; }
+                button { background: #0066ff; color: #fff; cursor: pointer; }
+                button:hover { background: #0052cc; }
                 .success { color: #28a745; }
                 .error { color: #dc3545; }
             </style>
