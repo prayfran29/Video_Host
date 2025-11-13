@@ -176,7 +176,7 @@ async function login() {
         const data = await response.json();
         if (response.ok) {
             authToken = data.token;
-            currentUser = { username: data.username };
+            currentUser = { username: data.username, adultAccess: data.adultAccess };
             localStorage.setItem('authToken', authToken);
             localStorage.setItem('currentUser', JSON.stringify(currentUser));
             updateUI();
@@ -248,6 +248,7 @@ function logout() {
 function updateUI() {
     const profileBtn = document.querySelector('.profile-btn');
     const adminBtn = document.getElementById('adminButton');
+    const adultBtn = document.getElementById('adultButton');
     
     if (currentUser) {
         profileBtn.textContent = `👤 ${currentUser.username} (Logout)`;
@@ -256,10 +257,15 @@ function updateUI() {
         if (currentUser.username === 'Magnus') {
             adminBtn.style.display = 'inline-block';
         }
+        
+        if (currentUser.adultAccess || currentUser.username === 'Magnus') {
+            adultBtn.style.display = 'inline-block';
+        }
     } else {
         profileBtn.textContent = '👤 Login';
         profileBtn.style.backgroundColor = '#333';
         adminBtn.style.display = 'none';
+        adultBtn.style.display = 'none';
     }
 }
 
@@ -268,7 +274,11 @@ function goToAdmin() {
 }
 
 function goToAdult() {
-    window.location.href = '/adult';
+    if (!authToken) {
+        alert('Please login first');
+        return;
+    }
+    window.location.href = `/adult?token=${encodeURIComponent(authToken)}`;
 }
 
 // Series functionality
@@ -426,15 +436,8 @@ function renderGenres(genres) {
         genreSections.appendChild(section);
     });
     
-    // Update navigation after genres load and focus first swimlane
+    // Update navigation after genres load
     updateSwimlanes();
-    
-    // Auto-focus first swimlane for TV navigation
-    setTimeout(() => {
-        if (swimlanes.length > 0) {
-            focusSwimlane(0);
-        }
-    }, 100);
 }
 
 function renderSeries(series) {
@@ -466,15 +469,8 @@ function renderSeries(series) {
         allSeriesGrid.appendChild(card);
     });
     
-    // Update navigation after content loads and focus first swimlane
+    // Update navigation after content loads
     updateSwimlanes();
-    
-    // Auto-focus first swimlane for TV navigation
-    setTimeout(() => {
-        if (swimlanes.length > 0) {
-            focusSwimlane(0);
-        }
-    }, 100);
 }
 
 function createSeriesCard(series, showProgress = false) {
@@ -542,7 +538,9 @@ function createSeriesCard(series, showProgress = false) {
     const genreText = series.genre && series.genre !== 'Root' ? `${series.genre} • ` : '';
     
     card.innerHTML = `
-        <div class="card-image" style="background-image: url('${series.thumbnail || ''}')"></div>
+        <div class="card-image">
+            ${series.thumbnail ? `<img src="${series.thumbnail}" alt="${series.title}" loading="lazy">` : ''}
+        </div>
         <div class="card-info">
             <h4>${series.title}</h4>
             <p>${genreText}${progressText}</p>

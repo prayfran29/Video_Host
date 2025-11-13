@@ -126,6 +126,13 @@ if (fs.existsSync(usersFile)) {
     try {
         const data = fs.readFileSync(usersFile, 'utf8');
         users = JSON.parse(data);
+        
+        // Ensure Magnus has adult access
+        const magnus = users.find(u => u.username === 'Magnus');
+        if (magnus && !magnus.adultAccess) {
+            magnus.adultAccess = true;
+            saveUsers();
+        }
     } catch (error) {
         console.error('Failed to load users file, starting fresh');
         users = [];
@@ -226,9 +233,9 @@ app.use('/videos', auth, (req, res, next) => {
     
     next();
 }, express.static(videosDir, {
-    maxAge: '1d',
-    etag: true,
-    lastModified: true
+    maxAge: 0,
+    etag: false,
+    lastModified: false
 }));
 
 // Video streaming function with range support
@@ -321,7 +328,7 @@ app.post('/api/register',
         const hashedPassword = await bcrypt.hash(password, 12);
         
         if (username === 'Magnus') {
-            // Auto-approve Magnus
+            // Auto-approve Magnus with adult access
             const user = { 
                 id: crypto.randomUUID(), 
                 username, 
@@ -389,7 +396,7 @@ app.post('/api/login',
             lastActivity: new Date()
         });
         
-        res.json({ token, username });
+        res.json({ token, username, adultAccess: user.adultAccess || false });
     }
 );
 
@@ -584,7 +591,7 @@ app.get('/api/series', auth, (req, res) => {
             
             if (videos.length > 0) {
                 // This is a series folder
-                const thumbnail = files.find(f => f.toLowerCase() === 'img' || f.startsWith('img.'));
+                const thumbnail = files.find(f => f.toLowerCase() === 'img' || f.startsWith('img.') || f.startsWith('thumb.'));
                 series.push({
                     id: item.name,
                     title: item.name,
@@ -949,13 +956,32 @@ function cleanupExpiredSessions() {
 // Run cleanup every hour
 setInterval(cleanupExpiredSessions, 60 * 60 * 1000);
 
-// Adult page route with access control
-app.get('/adult', auth, (req, res) => {
-    const user = users.find(u => u.id === req.user.id);
-    if (req.user.username !== 'Magnus' && (!user || !user.adultAccess)) {
-        return res.status(403).json({ error: 'Adult access denied' });
+// Adult page route with proper access control
+app.get('/adult', (req, res) => {
+    const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
+    
+    if (!token) {
+        return res.status(401).send('Authentication required');
     }
-    res.sendFile(path.join(__dirname, 'adult.html'));
+    
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        
+        // Always allow Magnus
+        if (decoded.username === 'Magnus') {
+            return res.sendFile(path.join(__dirname, 'adult.html'));
+        }
+        
+        // Check other users for adult access
+        const user = users.find(u => u.username === decoded.username);
+        if (user && user.adultAccess) {
+            return res.sendFile(path.join(__dirname, 'adult.html'));
+        }
+        
+        res.status(403).send('Adult access denied');
+    } catch (error) {
+        res.status(401).send('Invalid token');
+    }
 });
 
 // Admin routes
