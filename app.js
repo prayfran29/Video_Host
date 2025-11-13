@@ -122,22 +122,41 @@ function saveQRTokens() {
 let blacklistedTokens = new Set(); // Store blacklisted JWT tokens
 let activeSessions = new Map(); // Store active user sessions
 
-if (fs.existsSync(usersFile)) {
-    try {
-        const data = fs.readFileSync(usersFile, 'utf8');
-        users = JSON.parse(data);
-        
-        // Ensure Magnus has adult access
-        const magnus = users.find(u => u.username === 'Magnus');
-        if (magnus && !magnus.adultAccess) {
-            magnus.adultAccess = true;
-            saveUsers();
+async function initializeUsers() {
+    if (fs.existsSync(usersFile)) {
+        try {
+            const data = fs.readFileSync(usersFile, 'utf8');
+            users = JSON.parse(data);
+            
+            // Ensure Magnus has adult access
+            const magnus = users.find(u => u.username === 'Magnus');
+            if (magnus && !magnus.adultAccess) {
+                magnus.adultAccess = true;
+                saveUsers();
+            }
+        } catch (error) {
+            console.error('Failed to load users file, starting fresh');
+            users = [];
         }
-    } catch (error) {
-        console.error('Failed to load users file, starting fresh');
-        users = [];
+    }
+    
+    // Auto-create TV user account
+    const tvUser = users.find(u => u.username === 'TVUser');
+    if (!tvUser) {
+        const hashedPassword = await bcrypt.hash('TVPass123!', 12);
+        users.push({
+            id: crypto.randomUUID(),
+            username: 'TVUser',
+            password: hashedPassword,
+            createdAt: new Date().toISOString(),
+            approved: true,
+            adultAccess: false
+        });
+        saveUsers();
     }
 }
+
+initializeUsers();
 
 if (fs.existsSync(progressFile)) {
     try {

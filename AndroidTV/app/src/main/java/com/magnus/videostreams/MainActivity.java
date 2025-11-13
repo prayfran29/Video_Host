@@ -11,6 +11,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.os.Handler;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 
 public class MainActivity extends Activity {
     private WebView webView;
@@ -63,6 +65,22 @@ public class MainActivity extends Activity {
         super.onDestroy();
         stopPeriodicRetry();
     }
+    
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (webView != null) {
+            webView.onPause();
+        }
+    }
+    
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (webView != null) {
+            webView.onResume();
+        }
+    }
 
     private void setupWebView() {
         WebSettings webSettings = webView.getSettings();
@@ -73,21 +91,40 @@ public class MainActivity extends Activity {
         webSettings.setAllowContentAccess(true);
         webSettings.setAllowFileAccessFromFileURLs(true);
         webSettings.setAllowUniversalAccessFromFileURLs(true);
-        webSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        webSettings.setCacheMode(WebSettings.LOAD_CACHE_ELSE_NETWORK);
         webSettings.setDatabaseEnabled(true);
         webSettings.setLoadWithOverviewMode(true);
         webSettings.setUseWideViewPort(true);
         
-        // Memory optimizations for TV
+        // TV-specific optimizations
         webSettings.setGeolocationEnabled(false);
         webSettings.setSaveFormData(false);
         webSettings.setSavePassword(false);
+        webSettings.setRenderPriority(WebSettings.RenderPriority.HIGH);
         
-        // Clear cache less aggressively to preserve icons and performance
+        // Video performance optimizations
+        webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        webSettings.setPluginState(WebSettings.PluginState.ON);
+        
+        // Enable JavaScript debugging for QR login
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT) {
+            WebView.setWebContentsDebuggingEnabled(true);
+        }
+        
+        // Clear cache but keep important data
         webView.clearCache(false);
         
-        // Enable hardware acceleration for video
+        // Use hardware rendering for video performance
         webView.setLayerType(WebView.LAYER_TYPE_HARDWARE, null);
+        
+        // Enable localStorage and sessionStorage for QR login
+        webSettings.setDomStorageEnabled(true);
+        webSettings.setDatabaseEnabled(true);
+        
+        // Ensure cookies work for authentication
+        android.webkit.CookieManager cookieManager = android.webkit.CookieManager.getInstance();
+        cookieManager.setAcceptCookie(true);
+        cookieManager.setAcceptThirdPartyCookies(webView, true);
         
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -103,6 +140,22 @@ public class MainActivity extends Activity {
                 retryCount = 0;
                 siteLoaded = true;
                 stopPeriodicRetry();
+                
+                // Auto-login for TV and force video sizing
+                if (url.contains("magnushackhost.win")) {
+                    view.evaluateJavascript(
+                        "setTimeout(() => {" +
+                        "  if (document.getElementById('loginUsername')) {" +
+                        "    document.getElementById('loginUsername').value = 'TVUser';" +
+                        "    document.getElementById('loginPassword').value = 'TVPass123!';" +
+                        "    setTimeout(() => { if (typeof login === 'function') login(); }, 500);" +
+                        "  }" +
+                        "  var style = document.createElement('style');" +
+                        "  style.textContent = '#videoPlayer { width: 100% !important; height: 400px !important; background: black !important; } .video-container { height: 400px !important; background: black !important; } #videoLoading { display: none !important; }';" +
+                        "  document.head.appendChild(style);" +
+                        "  setTimeout(() => { var video = document.getElementById('videoPlayer'); if(video) { video.style.visibility = 'visible'; video.style.opacity = '1'; video.webkitEnterFullscreen = video.webkitEnterFullscreen || function(){}; } }, 3000);" +
+                        "}, 2000);", null);
+                }
             }
             
             @Override
@@ -131,10 +184,44 @@ public class MainActivity extends Activity {
                     startPeriodicRetry();
                 }
             }
+            
+            @Override
+            public void onLoadResource(WebView view, String url) {
+                super.onLoadResource(view, url);
+                // Preload video resources for better performance
+                if (url.contains(".mp4") || url.contains(".webm")) {
+                    view.evaluateJavascript("document.querySelector('video')?.setAttribute('preload', 'metadata');", null);
+                }
+            }
+            
+            @Override
+            public void onReceivedHttpError(WebView view, android.webkit.WebResourceRequest request, android.webkit.WebResourceResponse errorResponse) {
+                super.onReceivedHttpError(view, request, errorResponse);
+                // Log QR login API errors for debugging
+                if (request.getUrl().toString().contains("/api/qr")) {
+                    android.util.Log.e("WebView", "QR API Error: " + errorResponse.getStatusCode());
+                }
+            }
         });
         
-        // Enable fullscreen video support
+        // Enable fullscreen video support with TV optimizations
         webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onProgressChanged(WebView view, int newProgress) {
+                super.onProgressChanged(view, newProgress);
+                // Optimize video elements when page loads
+                if (newProgress > 80) {
+                    view.evaluateJavascript(
+                        "var videos = document.querySelectorAll('video'); " +
+                        "for(var i=0; i<videos.length; i++) { " +
+                        "videos[i].setAttribute('preload', 'metadata'); " +
+                        "videos[i].setAttribute('playsinline', 'true'); " +
+                        "videos[i].style.width = '100%'; " +
+                        "videos[i].style.height = '100%'; " +
+                        "videos[i].style.objectFit = 'contain'; }" +
+                        "console.log('TV app loaded, videos optimized');", null);
+                }
+            }
             private View customView;
             private CustomViewCallback customViewCallback;
             
@@ -148,11 +235,14 @@ public class MainActivity extends Activity {
                 customView = view;
                 customViewCallback = callback;
                 
-                // Hide system UI for fullscreen
+                // Hide system UI for fullscreen with TV-specific flags
                 getWindow().getDecorView().setSystemUiVisibility(
                     View.SYSTEM_UI_FLAG_FULLSCREEN |
                     View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
-                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY |
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE |
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                 );
                 
                 // Add custom view to activity

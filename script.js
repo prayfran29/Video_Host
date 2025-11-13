@@ -826,16 +826,25 @@ function toggleFullscreen(player) {
             document.msExitFullscreen();
         }
     } else {
-        // Enter fullscreen
-        const element = player.parentElement || player;
-        if (element.requestFullscreen) {
-            element.requestFullscreen();
-        } else if (element.webkitRequestFullscreen) {
-            element.webkitRequestFullscreen();
-        } else if (element.mozRequestFullScreen) {
-            element.mozRequestFullScreen();
-        } else if (element.msRequestFullscreen) {
-            element.msRequestFullscreen();
+        // Try video element fullscreen first (better for Android TV)
+        if (player.requestFullscreen) {
+            player.requestFullscreen();
+        } else if (player.webkitRequestFullscreen) {
+            player.webkitRequestFullscreen();
+        } else if (player.webkitEnterFullscreen) {
+            player.webkitEnterFullscreen();
+        } else {
+            // Fallback to container fullscreen
+            const element = player.parentElement;
+            if (element.requestFullscreen) {
+                element.requestFullscreen();
+            } else if (element.webkitRequestFullscreen) {
+                element.webkitRequestFullscreen();
+            } else if (element.mozRequestFullScreen) {
+                element.mozRequestFullScreen();
+            } else if (element.msRequestFullscreen) {
+                element.msRequestFullscreen();
+            }
         }
     }
 }
