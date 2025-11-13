@@ -10,19 +10,58 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
+import android.os.Handler;
 
 public class MainActivity extends Activity {
     private WebView webView;
     private static final String SITE_URL = "https://magnushackhost.win";
+    private int retryCount = 0;
+    private static final int MAX_RETRIES = 3;
+    private Handler retryHandler = new Handler();
+    private Runnable periodicRetry;
+    private boolean siteLoaded = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        
+        // Keep screen on during video playback
+        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         webView = findViewById(R.id.webview);
         setupWebView();
+        loadSiteWithRetry();
+    }
+    
+    private void loadSiteWithRetry() {
+        retryCount = 0;
+        siteLoaded = false;
         webView.loadUrl(SITE_URL);
+    }
+    
+    private void startPeriodicRetry() {
+        stopPeriodicRetry();
+        periodicRetry = () -> {
+            if (!siteLoaded) {
+                retryCount = 0;
+                webView.loadUrl(SITE_URL);
+                retryHandler.postDelayed(periodicRetry, 60000); // 1 minute
+            }
+        };
+        retryHandler.postDelayed(periodicRetry, 60000);
+    }
+    
+    private void stopPeriodicRetry() {
+        if (periodicRetry != null) {
+            retryHandler.removeCallbacks(periodicRetry);
+        }
+    }
+    
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        stopPeriodicRetry();
     }
 
     private void setupWebView() {
@@ -58,11 +97,38 @@ public class MainActivity extends Activity {
             }
             
             @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                // Reset retry count on successful load
+                retryCount = 0;
+                siteLoaded = true;
+                stopPeriodicRetry();
+            }
+            
+            @Override
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
-                // Retry loading on error
-                if (failingUrl.contains(".avi")) {
-                    // Video file error - reload page
-                    view.reload();
+                super.onReceivedError(view, errorCode, description, failingUrl);
+                
+                // Retry logic for main site and video files
+                if (retryCount < MAX_RETRIES) {
+                    retryCount++;
+                    
+                    // Exponential backoff: 2s, 4s, 8s
+                    long delay = 2000 * (1L << (retryCount - 1));
+                    
+                    retryHandler.postDelayed(() -> {
+                        if (failingUrl.equals(SITE_URL) || failingUrl.contains("magnushackhost.win")) {
+                            // Retry main site
+                            view.loadUrl(SITE_URL);
+                        } else {
+                            // Retry current page
+                            view.reload();
+                        }
+                    }, delay);
+                } else if (failingUrl.equals(SITE_URL) || failingUrl.contains("magnushackhost.win")) {
+                    // Start periodic retry for main site
+                    siteLoaded = false;
+                    startPeriodicRetry();
                 }
             }
         });
