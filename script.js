@@ -798,8 +798,13 @@ function enableFullscreenSupport(player) {
     const videoModal = document.getElementById('videoModal');
     const controlsDiv = videoModal.querySelector('.video-controls');
     
-    // Check if fullscreen button already exists and only add on TV
-    if (!document.getElementById('fullscreenBtn') && navigator.userAgent.includes('wv')) {
+    // Remove existing fullscreen button and recreate for TV
+    const existingBtn = document.getElementById('fullscreenBtn');
+    if (existingBtn) {
+        existingBtn.remove();
+    }
+    
+    if (navigator.userAgent.includes('wv')) {
         const fullscreenBtn = document.createElement('button');
         fullscreenBtn.id = 'fullscreenBtn';
         fullscreenBtn.textContent = '⛶ Fullscreen';
@@ -814,6 +819,8 @@ function enableFullscreenSupport(player) {
         const btn = document.getElementById('fullscreenBtn');
         if (btn) {
             btn.textContent = isFullscreen ? '⛶ Exit Fullscreen' : '⛶ Fullscreen';
+            // Re-enable button functionality
+            btn.onclick = () => toggleFullscreen(player);
         }
     };
 }
