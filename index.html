@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Magnus Video Streams - Discover</title>
     <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
-    <link rel="stylesheet" href="styles.css?v=10">
+    <link rel="stylesheet" href="styles.css?v=11">
 </head>
 <body>
     <header class="header">
@@ -15,6 +15,8 @@
             </div>
 
             <div class="nav-actions">
+                <button class="exit-btn" onclick="Android.exitApp()" title="Exit App" style="display:none" id="exitBtn" tabindex="0">❌</button>
+                <button class="reload-btn" onclick="typeof Android !== 'undefined' ? Android.clearCacheAndReload() : location.reload(true)" title="Reload Page" style="display:none" id="reloadBtn" tabindex="0">🔄</button>
                 <div class="search-container">
                     <input type="text" id="searchInput" placeholder="Search videos..." class="search-input" oninput="showSearchResults()" autocomplete="off" readonly>
                     <button class="search-btn" onclick="activateSearch()">🔍</button>
@@ -141,6 +143,6 @@
         </div>
     </footer>
 
-    <script src="script.js?v=14"></script>
+    <script src="script.js?v=15"></script>
 </body>
 </html>

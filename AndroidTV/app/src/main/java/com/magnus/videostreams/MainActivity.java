@@ -111,6 +111,9 @@ public class MainActivity extends Activity {
             WebView.setWebContentsDebuggingEnabled(true);
         }
         
+        // Add JavaScript interface for app control
+        webView.addJavascriptInterface(new WebAppInterface(), "Android");
+        
         // Clear cache but keep important data
         webView.clearCache(false);
         
@@ -309,5 +312,21 @@ public class MainActivity extends Activity {
                 break;
         }
         return super.onKeyDown(keyCode, event);
+    }
+    
+    public class WebAppInterface {
+        @android.webkit.JavascriptInterface
+        public void exitApp() {
+            finish();
+        }
+        
+        @android.webkit.JavascriptInterface
+        public void clearCacheAndReload() {
+            runOnUiThread(() -> {
+                webView.clearCache(true);
+                webView.clearHistory();
+                webView.reload();
+            });
+        }
     }
 }

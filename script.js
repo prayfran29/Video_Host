@@ -6,6 +6,14 @@ let currentVideoIndex = 0;
 
 // Initialize - check for existing login
 document.addEventListener('DOMContentLoaded', () => {
+    // Show TV-only buttons (Android WebView only)
+    if (navigator.userAgent.includes('wv')) {
+        document.getElementById('reloadBtn').style.display = 'inline-block';
+        if (typeof Android !== 'undefined') {
+            document.getElementById('exitBtn').style.display = 'inline-block';
+        }
+    }
+    
     // Check if we have a valid token
     if (authToken) {
         currentUser = JSON.parse(localStorage.getItem('currentUser'));
@@ -790,8 +798,8 @@ function enableFullscreenSupport(player) {
     const videoModal = document.getElementById('videoModal');
     const controlsDiv = videoModal.querySelector('.video-controls');
     
-    // Check if fullscreen button already exists
-    if (!document.getElementById('fullscreenBtn')) {
+    // Check if fullscreen button already exists and only add on TV
+    if (!document.getElementById('fullscreenBtn') && navigator.userAgent.includes('wv')) {
         const fullscreenBtn = document.createElement('button');
         fullscreenBtn.id = 'fullscreenBtn';
         fullscreenBtn.textContent = '⛶ Fullscreen';
@@ -1197,7 +1205,7 @@ document.addEventListener('keydown', (event) => {
                 if (currentSwimlaneIndex === -1) {
                     // Navigate between header buttons
                     event.preventDefault();
-                    const headerButtons = document.querySelectorAll('.search-btn, .profile-btn, #adminButton');
+                    const headerButtons = document.querySelectorAll('#exitBtn, #reloadBtn, .search-btn, .profile-btn, #adminButton');
                     const focusedElement = document.activeElement;
                     const currentIndex = Array.from(headerButtons).indexOf(focusedElement);
                     
