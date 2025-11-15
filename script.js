@@ -682,14 +682,36 @@ function playVideo(url, filename, title, videoIndex = null) {
         });
     }
     
-    // Add loading error handling with retry
+    // Enhanced error handling and retry logic for TV
     let retryCount = 0;
+    let stallTimeout = null;
+    
     player.onerror = () => {
         if (retryCount < 3) {
             retryCount++;
+            document.getElementById('videoLoading').style.display = 'block';
             setTimeout(() => {
                 player.load();
             }, 1000 * retryCount);
+        }
+    };
+    
+    // Handle stalling/buffering issues
+    player.onstalled = player.onwaiting = () => {
+        document.getElementById('videoLoading').style.display = 'block';
+        // Auto-retry if stalled for more than 10 seconds
+        stallTimeout = setTimeout(() => {
+            if (retryCount < 2) {
+                retryCount++;
+                player.load();
+            }
+        }, 10000);
+    };
+    
+    player.onprogress = player.oncanplaythrough = () => {
+        if (stallTimeout) {
+            clearTimeout(stallTimeout);
+            stallTimeout = null;
         }
     };
     

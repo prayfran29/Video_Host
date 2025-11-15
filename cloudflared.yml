@@ -17,5 +17,5 @@ ingress:
       keepAliveTimeout: 90s
       keepAliveConnections: 100
   - hostname: redis.magnushackhost.win
-    service: tcp://127.0.0.1:6380
+    service: http://127.0.0.1:6381
   - service: http_status:404
