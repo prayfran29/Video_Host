@@ -14,7 +14,7 @@ for /r %%d in (*.avi *.mkv *.mov *.wmv *.flv *.webm) do (
         
         REM Check if MP4 version already exists
         if not exist "!output!" (
-            ffmpeg -i "%%d" -c:v libx264 -profile:v baseline -level 3.1 -c:a aac -b:a 128k -movflags +faststart -preset medium -crf 23 -r 30 "!output!"
+            ffmpeg -i "%%d" -c:v libx264 -profile:v baseline -level 3.1 -c:a aac -b:a 128k -movflags +faststart+frag_keyframe+empty_moov -preset medium -crf 23 -r 30 -g 60 -keyint_min 60 -sc_threshold 0 "!output!"
             
             REM Only delete original if conversion was successful
             if !errorlevel! equ 0 (
