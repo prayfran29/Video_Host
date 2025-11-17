@@ -9,12 +9,13 @@ ingress:
   - hostname: magnushackhost.win
     service: http://127.0.0.1:3000
     originRequest:
-      httpHostHeader: magnushackhost.win
+      http2Origin: false
       noTLSVerify: true
       connectTimeout: 30s
       tlsTimeout: 10s
       tcpKeepAlive: 30s
       keepAliveTimeout: 90s
+      noHappyEyeballs: true
       keepAliveConnections: 100
   - hostname: redis.magnushackhost.win
     service: http://127.0.0.1:6381

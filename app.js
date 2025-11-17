@@ -231,6 +231,10 @@ const auth = (req, res, next) => {
 
 // Secure video serving with auth and streaming optimizations
 app.use('/videos', auth, (req, res, next) => {
+    // Add streaming headers for better video compatibility
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    
     const filePath = req.path;
     
     // Validate file path
