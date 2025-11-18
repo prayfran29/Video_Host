@@ -23,6 +23,10 @@ spec:
         env:
         - name: NODE_ENV
           value: "production"
+        - name: REDIS_HOST
+          value: "localhost"
+        - name: REDIS_PORT
+          value: "6381"
         - name: JWT_SECRET
           valueFrom:
             secretKeyRef:

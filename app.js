@@ -9,6 +9,7 @@ const { body, validationResult, param } = require('express-validator');
 const crypto = require('crypto');
 const config = require('./config');
 const QRCode = require('qrcode');
+const redisClient = require('./http-redis-client');
 const app = express();
 
 // Trust proxy for Cloudflare tunnel (localhost only)
@@ -36,10 +37,13 @@ const authLimiter = rateLimit({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static('.'));
 
-// Handle request timeouts
+// Handle request timeouts (longer for video streaming)
 app.use((req, res, next) => {
-    req.setTimeout(30000, () => {
-        res.status(408).json({ error: 'Request timeout' });
+    const timeout = req.path.includes('/videos/') ? 120000 : 30000; // 2 minutes for videos
+    req.setTimeout(timeout, () => {
+        if (!res.headersSent) {
+            res.status(408).json({ error: 'Request timeout' });
+        }
     });
     next();
 });
@@ -119,8 +123,7 @@ function saveQRTokens() {
         console.error('Failed to save QR tokens');
     }
 }
-let blacklistedTokens = new Set(); // Store blacklisted JWT tokens
-let activeSessions = new Map(); // Store active user sessions
+// Redis-backed storage replaces in-memory collections
 
 async function initializeUsers() {
     if (fs.existsSync(usersFile)) {
@@ -200,13 +203,17 @@ if (!config.validateVideosPath()) {
 }
 
 // Auth middleware with token expiration and blacklist check
-const auth = (req, res, next) => {
+const auth = async (req, res, next) => {
     const token = req.header('Authorization')?.replace('Bearer ', '');
     if (!token) return res.status(401).json({ error: 'Access denied' });
     
     // Check if token is blacklisted
-    if (blacklistedTokens.has(token)) {
-        return res.status(401).json({ error: 'Token revoked' });
+    try {
+        if (await redisClient.isTokenBlacklisted(token)) {
+            return res.status(401).json({ error: 'Token revoked' });
+        }
+    } catch (err) {
+        // Redis not available, skip blacklist check
     }
     
     try {
@@ -216,13 +223,16 @@ const auth = (req, res, next) => {
             return res.status(401).json({ error: 'Token expired' });
         }
         // Update session activity
-        if (decoded.sessionId && activeSessions.has(decoded.sessionId)) {
-            const session = activeSessions.get(decoded.sessionId);
-            session.lastActivity = new Date();
+        if (decoded.sessionId) {
+            const session = await redisClient.getSession(decoded.sessionId);
+            if (session) {
+                session.lastActivity = new Date();
+                await redisClient.setSession(decoded.sessionId, session);
+            }
         }
         
         req.user = decoded;
-        req.token = token; // Store token for potential blacklisting
+        req.token = token;
         next();
     } catch (error) {
         res.status(401).json({ error: 'Invalid token' });
@@ -284,8 +294,8 @@ function streamVideo(req, res, videoPath) {
     if (range) {
         const parts = range.replace(/bytes=/, "").split("-");
         const start = parseInt(parts[0], 10);
-        // Optimize chunk size for streaming (max 1MB chunks)
-        const maxChunkSize = 1024 * 1024;
+        // Allow larger chunks for better seeking (8MB chunks)
+        const maxChunkSize = 8 * 1024 * 1024;
         const end = parts[1] ? parseInt(parts[1], 10) : Math.min(start + maxChunkSize - 1, fileSize - 1);
         const chunksize = (end - start) + 1;
         
@@ -410,8 +420,8 @@ app.post('/api/login',
             { expiresIn: '24h' }
         );
         
-        // Store active session
-        activeSessions.set(sessionId, {
+        // Store active session in Redis
+        await redisClient.setSession(sessionId, {
             userId: user.id,
             username,
             token,
@@ -927,12 +937,12 @@ app.get('/api/progress', auth, (req, res) => {
 });
 
 // Logout endpoint - blacklist token and remove session
-app.post('/api/logout', auth, (req, res) => {
-    blacklistedTokens.add(req.token);
+app.post('/api/logout', auth, async (req, res) => {
+    await redisClient.blacklistToken(req.token);
     
     // Remove session if it exists
     if (req.user.sessionId) {
-        activeSessions.delete(req.user.sessionId);
+        await redisClient.deleteSession(req.user.sessionId);
     }
     
     res.json({ message: 'Logged out successfully' });
@@ -1139,4 +1149,12 @@ app.listen(3000, () => {
     if (process.env.NODE_ENV !== 'production') {
         console.log('⚠️  Development mode - Security features enabled');
     }
+    
+    // Initialize Redis connection
+    console.log('Initializing Redis connection...');
+    redisClient.connect().then(() => {
+        console.log('✓ Redis initialized');
+    }).catch(err => {
+        console.error('Redis initialization failed:', err.message);
+    });
 });

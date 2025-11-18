@@ -1,14 +1,27 @@
 version: '3.8'
 
 services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "3000:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - video-host
+    restart: unless-stopped
+
   video-host:
     build: .
-    ports:
-      - "3000:3000"
     volumes:
-      - "${VIDEOS_PATH}:/app/videos"
+      - "${VIDEOS_PATH:-./videos}:/app/videos"
       - ./data:/app/data
     environment:
       - NODE_ENV=production
       - VIDEOS_PATH=${VIDEOS_PATH}
+      - REDIS_HOST=host.docker.internal
+      - REDIS_PORT=6381
+      - REDIS_PASSWORD=plant_en_2025
+    deploy:
+      replicas: 3
     restart: unless-stopped
