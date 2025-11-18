@@ -54,8 +54,8 @@ app.get('/admin', (req, res) => {
 });
 
 const JWT_SECRET = process.env.JWT_SECRET || (() => {
-    console.warn('⚠️  Using random JWT secret - tokens will be invalid after restart!');
-    return crypto.randomBytes(64).toString('hex');
+    console.error('❌ JWT_SECRET not set! Set JWT_SECRET environment variable.');
+    process.exit(1);
 })();
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ? Buffer.from(process.env.ENCRYPTION_KEY, 'hex') : crypto.randomBytes(32);
 const IV_LENGTH = 16;
