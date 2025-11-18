@@ -463,6 +463,20 @@ body {
     background: #e55a00;
 }
 
+.home-button {
+    background: #333 !important;
+    border: 1px solid #555 !important;
+    color: #fff !important;
+    padding: 0.75rem 1.5rem !important;
+    border-radius: 4px !important;
+    cursor: pointer !important;
+    font-size: 0.9rem !important;
+}
+
+.home-button:hover {
+    background: #0066ff !important;
+}
+
 .video-controls {
     display: flex;
     justify-content: space-between;

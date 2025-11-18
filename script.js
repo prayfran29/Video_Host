@@ -25,7 +25,16 @@ document.addEventListener('DOMContentLoaded', () => {
             showLoginModal();
         }
     } else {
-        showLoginModal();
+        // Auto-login for TV browsers (check multiple indicators)
+        const isTV = navigator.userAgent.includes('wv') || 
+                    navigator.userAgent.includes('Android') || 
+                    typeof Android !== 'undefined';
+        
+        if (isTV) {
+            autoLoginTV();
+        } else {
+            showLoginModal();
+        }
     }
     
     // Make sure the page is visible
@@ -46,6 +55,50 @@ document.addEventListener('DOMContentLoaded', () => {
 function showLoginModal() {
     document.getElementById('authModal').style.display = 'block';
     document.querySelector('main').style.display = 'none';
+}
+
+async function autoLoginTV() {
+    try {
+        // Get unique device ID for this TV with fallback
+        let deviceId;
+        try {
+            deviceId = typeof Android !== 'undefined' && Android.getDeviceId ? 
+                      Android.getDeviceId() : 
+                      localStorage.getItem('tvDeviceId') || 
+                      'TV-' + Math.random().toString(36).substr(2, 9);
+            
+            // Store device ID for consistency
+            localStorage.setItem('tvDeviceId', deviceId);
+        } catch (e) {
+            deviceId = localStorage.getItem('tvDeviceId') || 'TV-' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('tvDeviceId', deviceId);
+        }
+        
+        const tvUsername = `TV-${deviceId.substr(-8)}`; // Use last 8 chars of device ID
+        
+        const response = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: tvUsername, password: 'TVPass123!' })
+        });
+        
+        const data = await response.json();
+        if (response.ok) {
+            authToken = data.token;
+            currentUser = { username: data.username, adultAccess: data.adultAccess };
+            localStorage.setItem('authToken', authToken);
+            localStorage.setItem('currentUser', JSON.stringify(currentUser));
+            updateUI();
+            document.querySelector('main').style.display = 'block';
+            loadSeries();
+        } else {
+            console.error('TV auto-login failed:', data);
+            showLoginModal();
+        }
+    } catch (error) {
+        console.error('TV auto-login error:', error);
+        showLoginModal();
+    }
 }
 
 // Authentication
@@ -134,13 +187,20 @@ async function generateQRLogin() {
             document.getElementById('qrStatus').textContent = 'Waiting for login...';
             
             // Poll for login completion
+            if (qrPollInterval) {
+                clearInterval(qrPollInterval);
+            }
             qrPollInterval = setInterval(() => checkQRLogin(data.token), 2000);
+            
+            // Start polling immediately
+            checkQRLogin(data.token);
         } else {
-            document.getElementById('qrStatus').textContent = 'Failed to generate QR code';
+            document.getElementById('qrStatus').textContent = 'Failed to generate QR code - Please try again';
             document.getElementById('qrCode').innerHTML = `
-                <div style="padding:2rem;border:2px solid #0066ff;text-align:center;background:#222;border-radius:8px;">
-                    <p style="color:#0066ff;font-size:1.1rem;margin:0;">❌ QR Generation Failed</p>
-                    <p style="color:#999;font-size:0.9rem;margin:1rem 0;">Please use username/password login</p>
+                <div style="padding:2rem;border:2px solid #ff6b6b;text-align:center;background:#222;border-radius:8px;">
+                    <p style="color:#ff6b6b;font-size:1.1rem;margin:0;">❌ QR Generation Failed</p>
+                    <p style="color:#999;font-size:0.9rem;margin:1rem 0;">Please use username/password login or refresh the page</p>
+                    <button onclick="showQRLogin()" style="background:#0066ff;color:white;border:none;padding:10px 20px;border-radius:5px;cursor:pointer;">Try Again</button>
                 </div>
             `;
         }
@@ -151,22 +211,42 @@ async function generateQRLogin() {
 
 async function checkQRLogin(token) {
     try {
+        const statusEl = document.getElementById('qrStatus');
+        statusEl.textContent = `Checking... (${new Date().toLocaleTimeString()})`;
+        
         const response = await fetch(`/api/qr-login/${token}`);
         const data = await response.json();
         
         if (response.ok && data.authenticated) {
+            statusEl.textContent = '✓ Login successful! Loading...';
             clearInterval(qrPollInterval);
+            qrPollInterval = null;
+            
             authToken = data.authToken;
             currentUser = { username: data.username };
             localStorage.setItem('authToken', authToken);
             localStorage.setItem('currentUser', JSON.stringify(currentUser));
+            
+            // For QR login, we don't have the password to save for auto-login
+            // The TV app will show the first-time setup prompt next time
+            
             updateUI();
             closeAuth();
             document.querySelector('main').style.display = 'block';
             loadSeries();
+        } else if (!response.ok) {
+            if (response.status === 404) {
+                statusEl.textContent = 'QR code expired. Please refresh.';
+                clearInterval(qrPollInterval);
+                qrPollInterval = null;
+            } else {
+                statusEl.textContent = `Error: ${response.status} - Still waiting...`;
+            }
+        } else {
+            statusEl.textContent = `Waiting for login... (${new Date().toLocaleTimeString()})`;
         }
     } catch (error) {
-        // Silent fail, keep polling
+        document.getElementById('qrStatus').textContent = `Network error - Still trying... (${new Date().toLocaleTimeString()})`;
     }
 }
 
@@ -187,6 +267,12 @@ async function login() {
             currentUser = { username: data.username, adultAccess: data.adultAccess };
             localStorage.setItem('authToken', authToken);
             localStorage.setItem('currentUser', JSON.stringify(currentUser));
+            
+            // Save credentials for TV app auto-login
+            if (navigator.userAgent.includes('wv') && typeof Android !== 'undefined') {
+                Android.saveCredentials(username, password);
+            }
+            
             updateUI();
             closeAuth();
             document.querySelector('main').style.display = 'block';
@@ -244,6 +330,11 @@ async function register() {
 }
 
 function logout() {
+    // Clear TV app credentials on logout
+    if (navigator.userAgent.includes('wv') && typeof Android !== 'undefined') {
+        Android.clearCredentials();
+    }
+    
     currentUser = null;
     authToken = null;
     localStorage.removeItem('authToken');
@@ -595,10 +686,33 @@ function showSeriesModal(series) {
     const modal = document.getElementById('seriesModal');
     const title = document.getElementById('seriesTitle');
     const videoList = document.getElementById('videoList');
-    
     title.textContent = series.title;
+    
+    // Clear video list
     videoList.innerHTML = '';
     
+    // Add home button for everyone with normal styling
+    const homeButtonDiv = document.createElement('div');
+    homeButtonDiv.className = 'video-item';
+    homeButtonDiv.style.marginBottom = '10px';
+    
+    const homeButton = document.createElement('button');
+    homeButton.textContent = '🏠 Back to Home';
+    homeButton.className = 'home-button';
+    homeButton.tabIndex = 0;
+    homeButton.onclick = closeSeries;
+    
+    homeButton.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            closeSeries();
+        }
+    });
+    
+    homeButtonDiv.appendChild(homeButton);
+    videoList.appendChild(homeButtonDiv);
+    
+    // Add episodes after home button
     series.videos.forEach((video, index) => {
         const item = document.createElement('div');
         item.className = 'video-item';
@@ -625,6 +739,10 @@ function showSeriesModal(series) {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 playVideo(video.url, video.filename, video.title, index);
+            } else if (e.key === 'ArrowUp' && index === 0) {
+                e.preventDefault();
+                const closeBtn = document.querySelector('#seriesModal .close');
+                if (closeBtn) closeBtn.focus();
             }
         });
         
@@ -633,11 +751,11 @@ function showSeriesModal(series) {
     
     modal.style.display = 'block';
     
-    // Focus the modal content and trap focus
+    // Focus first element (home button for everyone)
     setTimeout(() => {
-        const firstItem = videoList.querySelector('.video-item');
-        if (firstItem) {
-            firstItem.focus();
+        const firstFocusable = videoList.querySelector('button[tabindex="0"], .video-item[tabindex="0"]');
+        if (firstFocusable) {
+            firstFocusable.focus();
         }
     }, 100);
 }
@@ -662,140 +780,188 @@ function playVideo(url, filename, title, videoIndex = null) {
     // Load video description
     loadVideoDescription(title);
     
-    // Optimize video loading for streaming
-    player.preload = 'none'; // Don't preload to save bandwidth
+    // Basic working settings
+    player.preload = 'metadata';
     player.setAttribute('playsinline', 'true');
-    player.setAttribute('webkit-playsinline', 'true');
-    
-    // TV-specific enhancements
     player.setAttribute('controls', 'true');
-    player.setAttribute('controlsList', 'nodownload');
     
-    // Optimize for streaming
-    if (player.canPlayType) {
-        // Prefer hardware-accelerated formats
-        const formats = ['video/mp4; codecs="avc1.42E01E"', 'video/webm; codecs="vp8"'];
-        formats.forEach(format => {
-            if (player.canPlayType(format) === 'probably') {
-                console.log('Optimized format supported:', format);
-            }
-        });
-    }
+
     
-    // Enhanced error handling and retry logic for TV
-    let retryCount = 0;
-    let stallTimeout = null;
+    // Old event handlers removed - using blob URL approach instead
     
-    player.onerror = () => {
-        if (retryCount < 3) {
-            retryCount++;
-            document.getElementById('videoLoading').style.display = 'block';
-            setTimeout(() => {
-                player.load();
-            }, 1000 * retryCount);
+    // Parallel chunk downloading for faster loading
+    const videoUrl = `${window.location.origin}${url}`;
+    console.log('Loading video with parallel downloads:', videoUrl);
+    
+    const loadingDiv = document.getElementById('videoLoading');
+    loadingDiv.innerHTML = '<div>Loading video...</div>';
+    
+    // Create abort controller for canceling downloads
+    const abortController = new AbortController();
+    window.currentVideoAbortController = abortController;
+    
+    // First get file size
+    fetch(videoUrl, { method: 'HEAD', signal: abortController.signal })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`Server error: ${response.status}`);
         }
-    };
-    
-    // Handle stalling/buffering issues
-    player.onstalled = player.onwaiting = () => {
-        document.getElementById('videoLoading').style.display = 'block';
-        // Auto-retry if stalled for more than 10 seconds
-        stallTimeout = setTimeout(() => {
-            if (retryCount < 2) {
-                retryCount++;
-                player.load();
-            }
-        }, 10000);
-    };
-    
-    player.onprogress = player.oncanplaythrough = () => {
-        if (stallTimeout) {
-            clearTimeout(stallTimeout);
-            stallTimeout = null;
-        }
-    };
-    
-    player.onloadstart = () => {
-        document.getElementById('videoLoading').style.display = 'block';
-    };
-    
-    player.oncanplay = () => {
-        document.getElementById('videoLoading').style.display = 'none';
-    };
-    
-    player.onwaiting = () => {
-        document.getElementById('videoLoading').style.display = 'block';
-    };
-    
-    player.onplaying = () => {
-        document.getElementById('videoLoading').style.display = 'none';
-    };
-    
-    // Flag to prevent progress restoration during manual seeking
-    let progressRestored = false;
-    let userSeeking = false;
-    
-    // Function to restore progress
-    const restoreProgress = () => {
-        if (progressRestored || userSeeking) return;
-        if (currentUser && currentSeries && watchProgress[currentSeries.id] && watchProgress[currentSeries.id][filename]) {
-            const progress = watchProgress[currentSeries.id][filename];
-            const savedTime = progress.currentTime || 0;
-            if (savedTime > 0 && Math.abs(player.currentTime - savedTime) > 5) {
-                player.currentTime = savedTime;
-                progressRestored = true;
-            }
-        }
-    };
-    
-    // Track user seeking to prevent interference
-    player.onseeking = () => {
-        userSeeking = true;
-        progressRestored = true; // Prevent future auto-restoration
-    };
-    
-    player.onseeked = () => {
-        userSeeking = false;
-    };
-    
-    // Setup audio track detection and force audio
-    player.onloadedmetadata = () => {
-        setupAudioTracks();
-        // Force audio for dual audio files
-        if (player.audioTracks && player.audioTracks.length >= 2) {
-            player.audioTracks[1].enabled = true;
-            player.audioTracks[0].enabled = false;
-        }
-        player.volume = 0.3;
-        player.muted = false;
         
-        restoreProgress();
-        
-        // Auto-play when ready
-        player.play().catch(() => {});
-        
-        // TV-specific: Enable fullscreen API
-        enableFullscreenSupport(player);
-    };
-    
-    // Fallback progress restoration for TV browsers
-    player.oncanplay = () => {
-        restoreProgress();
-    };
-    
-    player.onloadeddata = () => {
-        restoreProgress();
-    };
-    
-    // Additional fallback after a short delay
-    setTimeout(() => {
-        if (player.readyState >= 2) {
-            restoreProgress();
+        const total = parseInt(response.headers.get('content-length'), 10);
+        if (!total || isNaN(total) || total <= 0) {
+            throw new Error('Invalid file size from server');
         }
-    }, 1000);
+        
+        const fileSizeMB = Math.round(total / (1024 * 1024));
+        console.log(`Downloading ${fileSizeMB}MB video in parallel chunks`);
+        
+        // Create circular progress wheel
+        loadingDiv.innerHTML = `
+            <div style="display: flex; justify-content: center; align-items: center; margin: 20px 0;">
+                <div style="position: relative; width: 120px; height: 120px;">
+                    <svg width="120" height="120" style="transform: rotate(-90deg);">
+                        <circle cx="60" cy="60" r="50" fill="none" stroke="#333" stroke-width="8"/>
+                        <circle id="progressCircle" cx="60" cy="60" r="50" fill="none" stroke="#0066ff" stroke-width="8" 
+                                stroke-dasharray="314" stroke-dashoffset="314" stroke-linecap="round"/>
+                    </svg>
+                    <div id="progressText" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+                                                  font-size: 18px; font-weight: bold; color: #0066ff;">0%</div>
+                </div>
+            </div>
+        `;
+        
+        // Adaptive chunking based on file size
+        const numChunks = Math.min(20, Math.max(4, Math.floor(fileSizeMB / 100)));
+        const chunkSize = Math.ceil(total / numChunks);
+        
+        if (!numChunks || isNaN(numChunks) || numChunks <= 0) {
+            throw new Error('Invalid chunk calculation');
+        }
+        
+        const chunkPromises = [];
+        const chunkProgress = new Array(numChunks).fill(0);
+        
+        for (let i = 0; i < numChunks; i++) {
+            const start = i * chunkSize;
+            const end = Math.min(start + chunkSize - 1, total - 1);
+            
+            const chunkPromise = Promise.race([
+                fetch(videoUrl, {
+                    headers: { 'Range': `bytes=${start}-${end}` },
+                    signal: abortController.signal
+                }).then(async response => {
+                    if (response.status === 206 || response.status === 200) {
+                        const reader = response.body.getReader();
+                        const chunks = [];
+                        let receivedLength = 0;
+                        const expectedLength = end - start + 1;
+                        
+                        while(true) {
+                            const {done, value} = await reader.read();
+                            if (done) break;
+                            
+                            chunks.push(value);
+                            receivedLength += value.length;
+                            
+                            const progress = Math.min(100, Math.round((receivedLength / expectedLength) * 100));
+                            chunkProgress[i] = progress;
+                            
+                            const totalProgress = Math.round(chunkProgress.reduce((a, b) => a + b, 0) / numChunks);
+                            const progressCircle = document.getElementById('progressCircle');
+                            const progressText = document.getElementById('progressText');
+                            
+                            if (progressCircle && progressText) {
+                                const circumference = 314;
+                                const offset = circumference - (totalProgress / 100) * circumference;
+                                progressCircle.style.strokeDashoffset = offset;
+                                progressText.textContent = `${totalProgress}%`;
+                            }
+                        }
+                        
+                        const uint8Array = new Uint8Array(receivedLength);
+                        let position = 0;
+                        for(let chunk of chunks) {
+                            uint8Array.set(chunk, position);
+                            position += chunk.length;
+                        }
+                        
+                        return uint8Array.buffer;
+                    }
+                    throw new Error(`Chunk ${i} failed`);
+                }),
+                new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error(`Chunk ${i} timeout`)), 60000)
+                )
+            ]).catch(error => {
+                const chunkDiv = document.getElementById(`chunk${i}`);
+                if (chunkDiv) {
+                    chunkDiv.textContent = `${i + 1}: Error`;
+                    chunkDiv.style.background = '#ff6b6b';
+                }
+                throw error;
+            });
+            
+            chunkPromises.push(chunkPromise);
+        }
+        
+        return Promise.all(chunkPromises);
+    })
+    .then(chunks => {
+        console.log('All chunks downloaded, assembling video');
+        loadingDiv.innerHTML = `
+            <div>Preparing video...</div>
+            <div style="display: flex; justify-content: center; align-items: center; margin: 20px 0;">
+                <div style="position: relative; width: 120px; height: 120px;">
+                    <svg width="120" height="120" style="transform: rotate(-90deg);">
+                        <circle cx="60" cy="60" r="50" fill="none" stroke="#333" stroke-width="8"/>
+                        <circle cx="60" cy="60" r="50" fill="none" stroke="#0066ff" stroke-width="8" 
+                                stroke-dasharray="314" stroke-dashoffset="0" stroke-linecap="round"/>
+                    </svg>
+                    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+                                font-size: 18px; font-weight: bold; color: #0066ff;">100%</div>
+                </div>
+            </div>
+        `;
+        const blob = new Blob(chunks, { type: 'video/mp4' });
+        const blobUrl = URL.createObjectURL(blob);
+        
+        player.src = blobUrl;
+        player.load();
+        
+        player.onloadedmetadata = () => {
+            console.log('Video ready to play');
+            loadingDiv.style.display = 'none';
+            player.play().catch(e => console.log('Auto-play failed:', e));
+        };
+        
+        // Clean up blob URL when video ends or errors
+        player.onended = () => URL.revokeObjectURL(blobUrl);
+        player.onerror = () => URL.revokeObjectURL(blobUrl);
+    })
+    .catch(error => {
+        if (error.name === 'AbortError') {
+            console.log('Video loading cancelled by user');
+            return;
+        }
+        console.error('Parallel video loading failed:', error);
+        loadingDiv.innerHTML = '<div>Parallel download failed, trying single stream...</div>';
+        
+        // Fallback to direct video loading
+        player.src = videoUrl;
+        player.load();
+        
+        player.onloadedmetadata = () => {
+            console.log('Video ready to play (fallback)');
+            loadingDiv.style.display = 'none';
+            player.play().catch(e => console.log('Auto-play failed:', e));
+        };
+    });
     
-    // Set source after event handlers
-    player.src = url;
+    player.onerror = (e) => {
+        console.error('Video error:', player.error);
+    };
+    
+
     
     updateVideoControls();
     
@@ -812,6 +978,8 @@ function playVideo(url, filename, title, videoIndex = null) {
     
     modal.style.display = 'block';
     document.getElementById('seriesModal').style.display = 'none';
+    
+
 }
 
 // TV-specific fullscreen support
@@ -924,6 +1092,12 @@ function closeVideo() {
     const modal = document.getElementById('videoModal');
     const player = document.getElementById('videoPlayer');
     
+    // Cancel any ongoing video downloads
+    if (window.currentVideoAbortController) {
+        window.currentVideoAbortController.abort();
+        window.currentVideoAbortController = null;
+    }
+    
     // Save progress before closing
     if (currentUser && currentSeries && player.src) {
         const filename = player.src.split('/').pop().split('?')[0];
@@ -953,7 +1127,7 @@ async function backToSeries() {
     if (currentSeries) {
         const player = document.getElementById('videoPlayer');
         
-        // Save progress before stopping
+        // Save progress and stop video
         if (currentUser && player.src) {
             const filename = player.src.split('/').pop().split('?')[0];
             if (filename && player.currentTime > 0) {
@@ -961,24 +1135,10 @@ async function backToSeries() {
             }
         }
         
-        // Stop video completely
         player.pause();
-        player.removeAttribute('src');
-        player.innerHTML = '<source src="" type="video/mp4">';
+        player.src = '';
         
         document.getElementById('videoModal').style.display = 'none';
-        
-        // Reload series data to ensure proper episode titles
-        try {
-            const response = await fetch(`/api/series/${currentSeries.id}`, {
-                headers: { 'Authorization': `Bearer ${authToken}` }
-            });
-            if (response.ok) {
-                currentSeries = await response.json();
-            }
-        } catch (error) {
-            // Silent fail, use existing data
-        }
         showSeriesModal(currentSeries);
     }
 }
@@ -1048,9 +1208,31 @@ function closeSeries() {
 }
 
 function goHome() {
-    closeVideo();
-    // Reload the main page content
-    loadSeries();
+    const player = document.getElementById('videoPlayer');
+    const videoModal = document.getElementById('videoModal');
+    
+    // Cancel any ongoing video downloads
+    if (window.currentVideoAbortController) {
+        window.currentVideoAbortController.abort();
+        window.currentVideoAbortController = null;
+    }
+    
+    // Always stop video to prevent background playback
+    if (player) {
+        player.pause();
+        player.src = '';
+    }
+    
+    // If video was loading, force close and reset
+    if (videoModal.hasAttribute('data-has-loading-video')) {
+        videoModal.removeAttribute('data-has-loading-video');
+        // Rebuild content to fix navigation
+        setTimeout(() => loadSeries(), 100);
+    }
+    
+    videoModal.style.display = 'none';
+    document.getElementById('seriesModal').style.display = 'none';
+    currentSwimlaneIndex = -1;
 }
 
 // TV navigation state
@@ -1118,8 +1300,8 @@ document.addEventListener('keydown', (event) => {
     const seriesModal = document.getElementById('seriesModal');
     const player = document.getElementById('videoPlayer');
     
-    // Handle video modal controls
-    if (videoModal.style.display === 'block') {
+    // Handle video modal controls (only if actually visible and focused)
+    if (videoModal.style.display === 'block' && !document.querySelector('#seriesModal[style*="block"]')) {
         const focusedElement = document.activeElement;
         const isButtonFocused = focusedElement && focusedElement.tagName === 'BUTTON';
         
@@ -1148,13 +1330,24 @@ document.addEventListener('keydown', (event) => {
                 break;
             case 'ArrowUp':
             case 'ArrowDown':
+                event.preventDefault();
+                event.stopPropagation();
+                
                 if (isButtonFocused) {
-                    // Allow navigation between buttons
-                    return;
+                    // Navigate between buttons
+                    const buttons = Array.from(videoModal.querySelectorAll('button[tabindex="0"]'));
+                    const currentIndex = buttons.indexOf(document.activeElement);
+                    
+                    if (event.key === 'ArrowDown' && currentIndex < buttons.length - 1) {
+                        buttons[currentIndex + 1].focus();
+                    } else if (event.key === 'ArrowUp' && currentIndex > 0) {
+                        buttons[currentIndex - 1].focus();
+                    } else if (event.key === 'ArrowDown' && currentIndex === buttons.length - 1) {
+                        buttons[0].focus(); // Loop to first
+                    } else if (event.key === 'ArrowUp' && currentIndex === 0) {
+                        buttons[buttons.length - 1].focus(); // Loop to last
+                    }
                 } else {
-                    // Prevent episode changes when video is focused
-                    event.preventDefault();
-                    event.stopPropagation();
                     // Focus the first button to enable navigation
                     const firstButton = videoModal.querySelector('button[tabindex="0"]');
                     if (firstButton) {
@@ -1171,6 +1364,16 @@ document.addEventListener('keydown', (event) => {
                     } else {
                         player.pause();
                     }
+                }
+                break;
+            case 'p':
+            case 'P':
+                // Always allow pause/play with P key regardless of focus
+                event.preventDefault();
+                if (player.paused) {
+                    player.play();
+                } else {
+                    player.pause();
                 }
                 break;
             case 'Escape':
@@ -1199,9 +1402,13 @@ document.addEventListener('keydown', (event) => {
         return;
     }
     
-    // Handle main page navigation
+    // Handle main page navigation (if no modals are visible)
     const authModal = document.getElementById('authModal');
-    if (videoModal.style.display !== 'block' && seriesModal.style.display !== 'block' && authModal.style.display !== 'block') {
+    const videoVisible = videoModal.style.display === 'block';
+    const seriesVisible = seriesModal.style.display === 'block';
+    const authVisible = authModal.style.display === 'block';
+    
+    if (!videoVisible && !seriesVisible && !authVisible) {
         switch(event.key) {
             case 'ArrowDown':
                 event.preventDefault();
@@ -1276,31 +1483,41 @@ document.addEventListener('keydown', (event) => {
         return;
     }
     
-    // Handle series modal controls
-    if (seriesModal.style.display === 'block') {
+    // Handle series modal controls (only if series modal is visible and video modal is not)
+    if (seriesModal.style.display === 'block' && videoModal.style.display !== 'block') {
         switch(event.key) {
             case 'Escape':
             case 'Backspace':
+            case 'GoBack':
                 event.preventDefault();
                 event.stopPropagation();
                 closeSeries();
                 break;
             case 'ArrowUp':
             case 'ArrowDown':
-            case 'ArrowLeft':
-            case 'ArrowRight':
-                // Prevent arrow keys from affecting background elements
                 event.preventDefault();
                 event.stopPropagation();
-                // Allow natural focus navigation within the modal
-                const focusableElements = seriesModal.querySelectorAll('.video-item, button');
+                const focusableElements = seriesModal.querySelectorAll('.close, .video-item');
                 const currentIndex = Array.from(focusableElements).indexOf(document.activeElement);
                 
-                if (event.key === 'ArrowDown' && currentIndex < focusableElements.length - 1) {
-                    focusableElements[currentIndex + 1].focus();
-                } else if (event.key === 'ArrowUp' && currentIndex > 0) {
-                    focusableElements[currentIndex - 1].focus();
+                if (event.key === 'ArrowDown') {
+                    if (currentIndex < focusableElements.length - 1) {
+                        focusableElements[currentIndex + 1].focus();
+                    }
+                } else if (event.key === 'ArrowUp') {
+                    if (currentIndex > 0) {
+                        focusableElements[currentIndex - 1].focus();
+                    } else {
+                        // Focus close button when at top
+                        const closeBtn = seriesModal.querySelector('.close');
+                        if (closeBtn) closeBtn.focus();
+                    }
                 }
+                break;
+            case 'ArrowLeft':
+            case 'ArrowRight':
+                event.preventDefault();
+                event.stopPropagation();
                 break;
             default:
                 // For other keys, still prevent bubbling to background

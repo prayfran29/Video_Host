@@ -13,6 +13,8 @@ import android.widget.FrameLayout;
 import android.os.Handler;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
+import android.content.SharedPreferences;
+import android.content.Context;
 
 public class MainActivity extends Activity {
     private WebView webView;
@@ -22,6 +24,8 @@ public class MainActivity extends Activity {
     private Handler retryHandler = new Handler();
     private Runnable periodicRetry;
     private boolean siteLoaded = false;
+    private SharedPreferences prefs;
+    private boolean loginAttempted = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -32,6 +36,7 @@ public class MainActivity extends Activity {
         getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         webView = findViewById(R.id.webview);
+        prefs = getSharedPreferences("VideoHostAuth", Context.MODE_PRIVATE);
         setupWebView();
         loadSiteWithRetry();
     }
@@ -144,14 +149,41 @@ public class MainActivity extends Activity {
                 siteLoaded = true;
                 stopPeriodicRetry();
                 
-                // Auto-login for TV and force video sizing
-                if (url.contains("magnushackhost.win")) {
+                // Inject back button handler
+                view.evaluateJavascript(
+                    "document.addEventListener('keydown', function(e) {" +
+                    "  if (e.keyCode === 4 || e.key === 'GoBack') {" +
+                    "    var seriesModal = document.getElementById('seriesModal');" +
+                    "    if (seriesModal && seriesModal.style.display === 'block') {" +
+                    "      e.preventDefault();" +
+                    "      closeSeries();" +
+                    "    }" +
+                    "  }" +
+                    "});", null);
+                
+                // Auto-login with stored credentials and force video sizing
+                if (url.contains("magnushackhost.win") && !loginAttempted) {
+                    loginAttempted = true;
+                    String savedUsername = prefs.getString("username", "");
+                    String savedPassword = prefs.getString("password", "");
+                    
+                    String deviceId = android.provider.Settings.Secure.getString(getContentResolver(), android.provider.Settings.Secure.ANDROID_ID);
+                    String deviceUsername = "TV-" + deviceId.substring(Math.max(0, deviceId.length() - 8));
+                    android.util.Log.d("VideoHost", "Device ID: " + deviceId);
+                    android.util.Log.d("VideoHost", "TV Username: " + deviceUsername);
+                    
                     view.evaluateJavascript(
                         "setTimeout(() => {" +
                         "  if (document.getElementById('loginUsername')) {" +
-                        "    document.getElementById('loginUsername').value = 'TVUser';" +
-                        "    document.getElementById('loginPassword').value = 'TVPass123!';" +
-                        "    setTimeout(() => { if (typeof login === 'function') login(); }, 500);" +
+                        "    if ('" + savedUsername + "' && '" + savedPassword + "') {" +
+                        "      document.getElementById('loginUsername').value = '" + savedUsername + "';" +
+                        "      document.getElementById('loginPassword').value = '" + savedPassword + "';" +
+                        "      setTimeout(() => { if (typeof login === 'function') login(); }, 500);" +
+                        "    } else {" +
+                        "      document.getElementById('loginUsername').value = '" + deviceUsername + "';" +
+                        "      document.getElementById('loginPassword').value = 'TVPass123!';" +
+                        "      setTimeout(() => { if (typeof login === 'function') login(); }, 500);" +
+                        "    }" +
                         "  }" +
                         "  var style = document.createElement('style');" +
                         "  style.textContent = '#videoPlayer { width: 100% !important; height: 400px !important; background: black !important; } .video-container { height: 400px !important; background: black !important; } #videoLoading { display: none !important; }';" +
@@ -305,11 +337,13 @@ public class MainActivity extends Activity {
                     }
                 }
                 
-                if (webView.canGoBack()) {
-                    webView.goBack();
-                    return true;
-                }
-                break;
+                // Send back key to JavaScript
+                webView.evaluateJavascript(
+                    "var event = new KeyboardEvent('keydown', { keyCode: 4, key: 'GoBack' });" +
+                    "document.dispatchEvent(event);", null);
+                
+                // Prevent default back navigation for modals
+                return true;
         }
         return super.onKeyDown(keyCode, event);
     }
@@ -327,6 +361,45 @@ public class MainActivity extends Activity {
                 webView.clearHistory();
                 webView.reload();
             });
+        }
+        
+        @android.webkit.JavascriptInterface
+        public void saveCredentials(String username, String password) {
+            // Only save non-TV accounts for manual login
+            if (!username.startsWith("TV-")) {
+                SharedPreferences.Editor editor = prefs.edit();
+                editor.putString("username", username);
+                editor.putString("password", password);
+                editor.apply();
+            }
+        }
+        
+        @android.webkit.JavascriptInterface
+        public void showLoginPrompt() {
+            runOnUiThread(() -> {
+                webView.evaluateJavascript(
+                    "var loginDiv = document.createElement('div');" +
+                    "loginDiv.innerHTML = '<div style=\"position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.9);color:white;padding:20px;border-radius:10px;z-index:9999;text-align:center;\">" +
+                    "<h3>First Time Setup</h3>" +
+                    "<p>Use your phone to scan QR code or enter credentials manually</p>" +
+                    "<button id=\"firstTimeOkBtn\" onclick=\"this.parentElement.parentElement.remove()\" style=\"background:#007bff;color:white;border:none;padding:10px 20px;border-radius:5px;cursor:pointer;\">OK</button>" +
+                    "</div>';" +
+                    "document.body.appendChild(loginDiv);" +
+                    "setTimeout(() => { document.getElementById('firstTimeOkBtn').focus(); }, 100);", null);
+            });
+        }
+        
+        @android.webkit.JavascriptInterface
+        public String getDeviceId() {
+            return android.provider.Settings.Secure.getString(getContentResolver(), android.provider.Settings.Secure.ANDROID_ID);
+        }
+        
+        @android.webkit.JavascriptInterface
+        public void clearCredentials() {
+            SharedPreferences.Editor editor = prefs.edit();
+            editor.clear();
+            editor.apply();
+            loginAttempted = false;
         }
     }
 }

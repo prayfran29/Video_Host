@@ -12,21 +12,38 @@ const QRCode = require('qrcode');
 const redisClient = require('./http-redis-client');
 const app = express();
 
+
+
 // Trust proxy for Cloudflare tunnel (localhost only)
 app.set('trust proxy', 'loopback');
 
-// Security middleware
+// Security middleware with CSP for video
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
             styleSrc: ["'self'", "'unsafe-inline'"],
-            scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-hashes'"],
+            scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-hashes'", "https://static.cloudflareinsights.com"],
             scriptSrcAttr: ["'unsafe-inline'"],
-            mediaSrc: ["'self'"]
+            mediaSrc: ["'self'", "data:", "blob:"],
+            connectSrc: ["'self'", "https://cloudflareinsights.com"]
         }
     }
 }));
+
+// Add CORS headers for all requests
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Range');
+    res.header('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length');
+    
+    if (req.method === 'OPTIONS') {
+        res.sendStatus(200);
+    } else {
+        next();
+    }
+});
 
 // Rate limiting
 const authLimiter = rateLimit({
@@ -36,6 +53,16 @@ const authLimiter = rateLimit({
 });
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static('.'));
+
+// Log all requests
+app.use((req, res, next) => {
+    console.log(`📥 ${req.method} ${req.path} - ${req.headers['user-agent']?.substring(0, 30)}`);
+    if (req.path.includes('/videos/')) {
+        console.log(`🎬 VIDEO REQUEST: ${req.method} ${req.path}`);
+        console.log(`📊 Range: ${req.headers.range || 'none'}`);
+    }
+    next();
+});
 
 // Handle request timeouts (longer for video streaming)
 app.use((req, res, next) => {
@@ -100,29 +127,7 @@ if (!fs.existsSync(dataDir)) {
 let users = [];
 let watchProgress = {};
 let pendingUsers = [];
-let qrTokens = new Map(); // Store QR login tokens
-const qrTokensFile = path.join(dataDir, 'qr-tokens.json');
-
-// Load QR tokens from file
-if (fs.existsSync(qrTokensFile)) {
-    try {
-        const data = fs.readFileSync(qrTokensFile, 'utf8');
-        const tokenData = JSON.parse(data);
-        qrTokens = new Map(Object.entries(tokenData));
-    } catch (error) {
-        console.error('Failed to load QR tokens file');
-    }
-}
-
-// Save QR tokens to file
-function saveQRTokens() {
-    try {
-        const tokenData = Object.fromEntries(qrTokens);
-        fs.writeFileSync(qrTokensFile, JSON.stringify(tokenData, null, 2));
-    } catch (error) {
-        console.error('Failed to save QR tokens');
-    }
-}
+// QR tokens now stored in Redis for replica sharing
 // Redis-backed storage replaces in-memory collections
 
 async function initializeUsers() {
@@ -197,10 +202,101 @@ function savePending() {
 // Get videos directory from config
 const videosDir = config.getVideosPath();
 
+
+
+// Cache for video structure
+let videoCache = { series: [], genres: {}, lastScan: 0 };
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
 // Validate videos directory on startup
 if (!config.validateVideosPath()) {
     console.error('⚠️  Videos directory validation failed. Check permissions and path.');
 }
+
+// Scan video structure on startup
+function scanVideoStructure() {
+    try {
+        console.log('🔍 Scanning video structure...');
+        const series = [];
+        const genres = {};
+        
+        if (!fs.existsSync(videosDir)) {
+            console.error('Videos directory not found:', videosDir);
+            return;
+        }
+        
+        const rootItems = fs.readdirSync(videosDir, { withFileTypes: true })
+            .filter(dirent => dirent.isDirectory() && dirent.name !== 'Adult');
+        
+        for (const item of rootItems) {
+            if (!validatePath(item.name)) continue;
+            
+            const itemPath = path.join(videosDir, item.name);
+            if (!fs.existsSync(itemPath)) continue;
+            
+            const files = fs.readdirSync(itemPath);
+            const videos = files.filter(f => f.match(/\.(mp4|webm|ogg|avi|mkv)$/i));
+            
+            if (videos.length > 0) {
+                const thumbnail = files.find(f => f.toLowerCase() === 'img' || f.startsWith('img.'));
+                const seriesData = {
+                    id: item.name,
+                    title: item.name,
+                    genre: 'Root',
+                    thumbnail: thumbnail ? `/videos/${encodeURIComponent(item.name)}/${encodeURIComponent(thumbnail)}` : null,
+                    videoCount: videos.length,
+                    videos: videos.map(v => ({
+                        filename: v,
+                        url: `/videos/${encodeURIComponent(item.name)}/${encodeURIComponent(v)}`
+                    }))
+                };
+                series.push(seriesData);
+                if (!genres['Other']) genres['Other'] = [];
+                genres['Other'].push(seriesData);
+            } else {
+                const subItems = fs.readdirSync(itemPath, { withFileTypes: true })
+                    .filter(dirent => dirent.isDirectory());
+                
+                if (!genres[item.name]) genres[item.name] = [];
+                
+                for (const subItem of subItems) {
+                    if (!validatePath(subItem.name)) continue;
+                    
+                    const subPath = path.join(itemPath, subItem.name);
+                    if (!fs.existsSync(subPath)) continue;
+                    
+                    const subFiles = fs.readdirSync(subPath);
+                    const subVideos = subFiles.filter(f => f.match(/\.(mp4|webm|ogg|avi|mkv)$/i));
+                    
+                    if (subVideos.length > 0) {
+                        const thumbnail = subFiles.find(f => f.toLowerCase() === 'img' || f.startsWith('img.'));
+                        const seriesData = {
+                            id: `${item.name}/${subItem.name}`,
+                            title: subItem.name,
+                            genre: item.name,
+                            thumbnail: thumbnail ? `/videos/${encodeURIComponent(item.name)}/${encodeURIComponent(subItem.name)}/${encodeURIComponent(thumbnail)}` : null,
+                            videoCount: subVideos.length,
+                            videos: subVideos.map(v => ({
+                                filename: v,
+                                url: `/videos/${encodeURIComponent(item.name)}/${encodeURIComponent(subItem.name)}/${encodeURIComponent(v)}`
+                            }))
+                        };
+                        series.push(seriesData);
+                        genres[item.name].push(seriesData);
+                    }
+                }
+            }
+        }
+        
+        videoCache = { series, genres, lastScan: Date.now() };
+        console.log(`✓ Scanned ${series.length} series in ${Object.keys(genres).length} genres`);
+    } catch (error) {
+        console.error('Error scanning video structure:', error);
+    }
+}
+
+// Initial scan
+scanVideoStructure();
 
 // Auth middleware with token expiration and blacklist check
 const auth = async (req, res, next) => {
@@ -239,8 +335,15 @@ const auth = async (req, res, next) => {
     }
 };
 
-// Secure video serving with auth and streaming optimizations
-app.use('/videos', auth, (req, res, next) => {
+
+
+
+
+// Public video serving with streaming optimizations
+app.use('/videos', (req, res, next) => {
+    console.log(`🎬 Video request: ${req.method} ${req.path}`);
+    console.log(`📡 Headers: Range=${req.headers.range || 'none'}, User-Agent=${req.headers['user-agent']?.substring(0, 50)}`);
+    
     // Add streaming headers for better video compatibility
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Cache-Control', 'public, max-age=3600');
@@ -264,12 +367,17 @@ app.use('/videos', auth, (req, res, next) => {
         return streamVideo(req, res, fullPath);
     }
     
-    next();
-}, express.static(videosDir, {
-    maxAge: 0,
-    etag: false,
-    lastModified: false
-}));
+    // Handle other files (thumbnails, etc.)
+    try {
+        if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+            res.sendFile(fullPath);
+        } else {
+            res.status(404).json({ error: 'File not found' });
+        }
+    } catch (error) {
+        res.status(404).json({ error: 'File not found' });
+    }
+});
 
 // Video streaming function with range support
 function streamVideo(req, res, videoPath) {
@@ -281,12 +389,18 @@ function streamVideo(req, res, videoPath) {
     const fileSize = stat.size;
     const range = req.headers.range;
     
-    // Optimized caching and streaming headers
+    // Log video info for diagnostics
+    const fileName = path.basename(videoPath);
+    const fileSizeMB = (fileSize / (1024 * 1024)).toFixed(1);
+    console.log(`📹 Streaming: ${fileName} (${fileSizeMB}MB)`);
+    console.log(`📁 Full path: ${videoPath}`);
+    console.log(`🔍 Range header: ${range || 'No range'}`);
+    
+    // Streaming headers with balanced caching
     res.set({
         'Accept-Ranges': 'bytes',
         'Content-Type': 'video/mp4',
-        'Cache-Control': 'public, max-age=2592000', // 30 days
-        'ETag': `"${stat.mtime.getTime()}-${fileSize}"`,
+        'Cache-Control': 'public, max-age=3600', // 1 hour cache
         'Connection': 'keep-alive',
         'X-Content-Type-Options': 'nosniff'
     });
@@ -294,10 +408,23 @@ function streamVideo(req, res, videoPath) {
     if (range) {
         const parts = range.replace(/bytes=/, "").split("-");
         const start = parseInt(parts[0], 10);
-        // Allow larger chunks for better seeking (8MB chunks)
-        const maxChunkSize = 8 * 1024 * 1024;
+        // Conservative chunk sizing to prevent stalls
+        let maxChunkSize;
+        if (fileSize > 500 * 1024 * 1024) { // Files > 500MB (like Cowboy Bebop)
+            maxChunkSize = 8 * 1024 * 1024; // 8MB chunks - smaller for reliability
+        } else if (fileSize > 300 * 1024 * 1024) { // Files > 300MB
+            maxChunkSize = 12 * 1024 * 1024; // 12MB chunks
+        } else if (fileSize > 200 * 1024 * 1024) { // Files > 200MB
+            maxChunkSize = 16 * 1024 * 1024; // 16MB chunks
+        } else {
+            maxChunkSize = 16 * 1024 * 1024; // 16MB chunks for smaller files
+        }
         const end = parts[1] ? parseInt(parts[1], 10) : Math.min(start + maxChunkSize - 1, fileSize - 1);
         const chunksize = (end - start) + 1;
+        
+        // Log chunk info
+        const chunkMB = (chunksize / (1024 * 1024)).toFixed(1);
+        console.log(`📦 Chunk: ${start}-${end} (${chunkMB}MB of ${fileSizeMB}MB total)`);
         
         res.status(206).set({
             'Content-Range': `bytes ${start}-${end}/${fileSize}`,
@@ -305,6 +432,17 @@ function streamVideo(req, res, videoPath) {
         });
         
         const stream = fs.createReadStream(videoPath, { start, end });
+        
+        // Log timing
+        const startTime = Date.now();
+        stream.on('end', () => {
+            const duration = Date.now() - startTime;
+            console.log(`✅ Chunk completed in ${duration}ms`);
+        });
+        
+        stream.on('error', (err) => {
+            console.error(`❌ Stream error: ${err.message}`);
+        });
         
         // Handle stream errors and client disconnects
         stream.on('error', () => {
@@ -403,10 +541,26 @@ app.post('/api/login',
         }
         
         const { username, password } = req.body;
-        const user = users.find(u => u.username === username);
+        let user = users.find(u => u.username === username);
         
         if (!user || !await bcrypt.compare(password, user.password)) {
-            return res.status(401).json({ error: 'Invalid credentials' });
+            // Auto-create TV accounts for device-specific logins
+            if (username.startsWith('TV-') && password === 'TVPass123!') {
+                const hashedPassword = await bcrypt.hash('TVPass123!', 12);
+                const newTVUser = {
+                    id: crypto.randomUUID(),
+                    username: username,
+                    password: hashedPassword,
+                    createdAt: new Date().toISOString(),
+                    approved: true,
+                    adultAccess: false
+                };
+                users.push(newTVUser);
+                saveUsers();
+                user = newTVUser;
+            } else {
+                return res.status(401).json({ error: 'Invalid credentials' });
+            }
         }
         
         if (!user.approved && user.username !== 'Magnus') {
@@ -429,50 +583,80 @@ app.post('/api/login',
             lastActivity: new Date()
         });
         
+        // Set auth token as cookie for video requests
+        res.cookie('authToken', token, {
+            httpOnly: false, // Allow JavaScript access for debugging
+            secure: false, // Set to true in production with HTTPS
+            sameSite: 'lax',
+            maxAge: 24 * 60 * 60 * 1000 // 24 hours
+        });
+        
         res.json({ token, username, adultAccess: user.adultAccess || false });
     }
 );
 
 // QR Code login endpoints
-app.post('/api/qr-login', (req, res) => {
+app.post('/api/qr-login', async (req, res) => {
     const token = crypto.randomUUID();
-    qrTokens.set(token, { 
+    const qrData = { 
         authenticated: false, 
         createdAt: Date.now(),
-        expiresAt: Date.now() + (5 * 60 * 1000) // 5 minutes
-    });
+        expiresAt: Date.now() + (10 * 60 * 1000) // 10 minutes for better UX
+    };
     
-    // Clean up expired tokens
-    for (const [key, value] of qrTokens.entries()) {
-        if (Date.now() > value.expiresAt) {
-            qrTokens.delete(key);
-        }
+    try {
+        await redisClient.setQRToken(token, qrData);
+        res.json({ token });
+    } catch (error) {
+        console.error('Failed to store QR token:', error);
+        res.status(500).json({ error: 'Failed to generate QR code' });
     }
-    
-    saveQRTokens();
-    res.json({ token });
 });
 
-app.get('/api/qr-login/:token', (req, res) => {
+app.get('/api/qr-login/:token', async (req, res) => {
     const token = req.params.token;
-    const qrData = qrTokens.get(token);
-    
-    if (!qrData || Date.now() > qrData.expiresAt) {
-        qrTokens.delete(token);
-        return res.status(404).json({ error: 'Token expired or not found' });
+    try {
+        const qrData = await redisClient.getQRToken(token);
+        
+        if (!qrData) {
+            return res.status(404).json({ error: 'Token not found' });
+        }
+        
+        if (Date.now() > qrData.expiresAt) {
+            await redisClient.deleteQRToken(token);
+            return res.status(404).json({ error: 'Token expired' });
+        }
+        
+        res.json({ 
+            authenticated: qrData.authenticated || false,
+            authToken: qrData.authToken || null,
+            username: qrData.username || null
+        });
+    } catch (error) {
+        console.error('QR polling error:', error);
+        res.status(500).json({ error: 'Polling failed' });
     }
-    
-    res.json({ 
-        authenticated: qrData.authenticated,
-        authToken: qrData.authToken,
-        username: qrData.username
-    });
 });
 
 // QR Auth page for mobile
-app.get('/qr-auth', (req, res) => {
+app.get('/qr-auth', async (req, res) => {
     const token = req.query.token;
-    if (!token || !qrTokens.has(token)) {
+    if (!token) {
+        return res.status(404).send('Invalid QR code');
+    }
+    
+    try {
+        const qrData = await redisClient.getQRToken(token);
+        console.log(`QR auth page accessed for token: ${token}, data:`, qrData);
+        if (!qrData) {
+            return res.status(404).send('QR code not found');
+        }
+        if (Date.now() > qrData.expiresAt) {
+            await redisClient.deleteQRToken(token);
+            return res.status(404).send('QR code expired');
+        }
+    } catch (error) {
+        console.error('QR auth page error:', error);
         return res.status(404).send('Invalid or expired QR code');
     }
     
@@ -538,37 +722,53 @@ app.post('/api/qr-auth/:token', async (req, res) => {
     const token = req.params.token;
     const { username, password } = req.body;
     
-    const qrData = qrTokens.get(token);
-    if (!qrData || Date.now() > qrData.expiresAt) {
-        qrTokens.delete(token);
-        return res.status(404).json({ error: 'Token expired or not found' });
+    console.log(`QR auth attempt for token: ${token}, username: ${username}`);
+    
+    try {
+        const qrData = await redisClient.getQRToken(token);
+        console.log(`QR data retrieved:`, qrData);
+        
+        if (!qrData) {
+            console.log('QR token not found');
+            return res.status(404).json({ error: 'Token not found' });
+        }
+        
+        if (Date.now() > qrData.expiresAt) {
+            console.log('QR token expired');
+            await redisClient.deleteQRToken(token);
+            return res.status(404).json({ error: 'Token expired' });
+        }
+        
+        const user = users.find(u => u.username === username);
+        if (!user || !await bcrypt.compare(password, user.password)) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+        
+        if (!user.approved && user.username !== 'Magnus') {
+            return res.status(401).json({ error: 'Account pending approval' });
+        }
+        
+        const authToken = jwt.sign(
+            { id: user.id, username },
+            JWT_SECRET,
+            { expiresIn: '24h' }
+        );
+        
+        // Update QR token with auth data
+        const updatedQrData = {
+            ...qrData,
+            authenticated: true,
+            authToken,
+            username
+        };
+        
+        await redisClient.setQRToken(token, updatedQrData);
+        console.log(`QR token updated with auth data for ${username}`);
+        res.json({ message: 'Login successful' });
+    } catch (error) {
+        console.error('QR auth error:', error);
+        res.status(500).json({ error: 'Authentication failed' });
     }
-    
-    const user = users.find(u => u.username === username);
-    if (!user || !await bcrypt.compare(password, user.password)) {
-        return res.status(401).json({ error: 'Invalid credentials' });
-    }
-    
-    if (!user.approved && user.username !== 'Magnus') {
-        return res.status(401).json({ error: 'Account pending approval' });
-    }
-    
-    const authToken = jwt.sign(
-        { id: user.id, username },
-        JWT_SECRET,
-        { expiresIn: '24h' }
-    );
-    
-    // Update QR token with auth data
-    qrTokens.set(token, {
-        ...qrData,
-        authenticated: true,
-        authToken,
-        username
-    });
-    
-    saveQRTokens();
-    res.json({ message: 'Login successful' });
 });
 
 // Generate QR code image
@@ -602,85 +802,26 @@ app.get('/api/qr/:token', async (req, res) => {
 // Get all series from videos directory with auth (supports genre folders)
 app.get('/api/series', auth, (req, res) => {
     try {
-        
-        if (!fs.existsSync(videosDir)) {
-            return res.json([]);
-        }
-        
-        const series = [];
-        
-        // Scan root videos directory
-        const rootItems = fs.readdirSync(videosDir, { withFileTypes: true })
-            .filter(dirent => dirent.isDirectory() && dirent.name !== 'Adult');
-        
-        for (const item of rootItems) {
-            if (!validatePath(item.name)) continue;
-            
-            const itemPath = path.join(videosDir, item.name);
-            if (!fs.existsSync(itemPath)) continue;
-            
-            const files = fs.readdirSync(itemPath);
-            const videos = files.filter(f => f.match(/\.(mp4|webm|ogg|avi|mkv)$/i));
-            
-            if (videos.length > 0) {
-                // This is a series folder
-                const thumbnail = files.find(f => f.toLowerCase() === 'img' || f.startsWith('img.') || f.startsWith('thumb.'));
-                series.push({
-                    id: item.name,
-                    title: item.name,
-                    genre: 'Root',
-                    thumbnail: thumbnail ? `/videos/${encodeURIComponent(item.name)}/${encodeURIComponent(thumbnail)}` : null,
-                    videoCount: videos.length,
-                    videos: videos.map(v => ({
-                        filename: v,
-                        url: `/videos/${encodeURIComponent(item.name)}/${encodeURIComponent(v)}`
-                    }))
-                });
-            } else {
-                // This might be a genre folder, scan inside
-                const subItems = fs.readdirSync(itemPath, { withFileTypes: true })
-                    .filter(dirent => dirent.isDirectory());
-                
-                for (const subItem of subItems) {
-                    if (!validatePath(subItem.name)) continue;
-                    
-                    const subPath = path.join(itemPath, subItem.name);
-                    if (!fs.existsSync(subPath)) continue;
-                    
-                    const subFiles = fs.readdirSync(subPath);
-                    const subVideos = subFiles.filter(f => f.match(/\.(mp4|webm|ogg|avi|mkv)$/i));
-                    
-                    if (subVideos.length > 0) {
-                        const thumbnail = subFiles.find(f => f.toLowerCase() === 'img' || f.startsWith('img.'));
-                        series.push({
-                            id: `${item.name}/${subItem.name}`,
-                            title: subItem.name,
-                            genre: item.name,
-                            thumbnail: thumbnail ? `/videos/${encodeURIComponent(item.name)}/${encodeURIComponent(subItem.name)}/${encodeURIComponent(thumbnail)}` : null,
-                            videoCount: subVideos.length,
-                            videos: subVideos.map(v => ({
-                                filename: v,
-                                url: `/videos/${encodeURIComponent(item.name)}/${encodeURIComponent(subItem.name)}/${encodeURIComponent(v)}`
-                            }))
-                        });
-                    }
-                }
-            }
+        // Check if cache is still valid
+        if (Date.now() - videoCache.lastScan > CACHE_DURATION) {
+            scanVideoStructure();
         }
         
         const { search } = req.query;
         if (search) {
             const sanitizedSearch = search.replace(/[^a-zA-Z0-9\s]/g, '').toLowerCase();
-            const filtered = series.filter(s => 
+            const filtered = videoCache.series.filter(s => 
                 s.title.toLowerCase().includes(sanitizedSearch)
             );
             return res.json(filtered);
         }
         
-        res.json(series);
+        res.json(videoCache.series);
     } catch (error) {
         console.error('Series loading error:', error);
-        res.status(500).json({ error: 'Failed to load series' });
+        console.error('Videos directory:', videosDir);
+        console.error('Error stack:', error.stack);
+        res.status(500).json({ error: 'Failed to load series: ' + error.message });
     }
 });
 
@@ -761,65 +902,12 @@ app.get('/api/series/adult', auth, (req, res) => {
 // Get series grouped by genre
 app.get('/api/genres', auth, (req, res) => {
     try {
-        
-        if (!fs.existsSync(videosDir)) {
-            return res.json({});
+        // Check if cache is still valid
+        if (Date.now() - videoCache.lastScan > CACHE_DURATION) {
+            scanVideoStructure();
         }
         
-        const genres = {};
-        const rootItems = fs.readdirSync(videosDir, { withFileTypes: true })
-            .filter(dirent => dirent.isDirectory() && dirent.name !== 'Adult');
-        
-        for (const item of rootItems) {
-            if (!validatePath(item.name)) continue;
-            
-            const itemPath = path.join(videosDir, item.name);
-            if (!fs.existsSync(itemPath)) continue;
-            
-            const files = fs.readdirSync(itemPath);
-            const videos = files.filter(f => f.match(/\.(mp4|webm|ogg|avi|mkv)$/i));
-            
-            if (videos.length > 0) {
-                // Root level series
-                if (!genres['Other']) genres['Other'] = [];
-                const thumbnail = files.find(f => f.toLowerCase() === 'img' || f.startsWith('img.'));
-                genres['Other'].push({
-                    id: item.name,
-                    title: item.name,
-                    thumbnail: thumbnail ? `/videos/${encodeURIComponent(item.name)}/${encodeURIComponent(thumbnail)}` : null,
-                    videoCount: videos.length
-                });
-            } else {
-                // Genre folder
-                const genreName = item.name;
-                if (!genres[genreName]) genres[genreName] = [];
-                
-                const subItems = fs.readdirSync(itemPath, { withFileTypes: true })
-                    .filter(dirent => dirent.isDirectory());
-                
-                for (const subItem of subItems) {
-                    if (!validatePath(subItem.name)) continue;
-                    
-                    const subPath = path.join(itemPath, subItem.name);
-                    if (!fs.existsSync(subPath)) continue;
-                    
-                    const subFiles = fs.readdirSync(subPath);
-                    const subVideos = subFiles.filter(f => f.match(/\.(mp4|webm|ogg|avi|mkv)$/i));
-                    
-                    if (subVideos.length > 0) {
-                        const thumbnail = subFiles.find(f => f.toLowerCase() === 'img' || f.startsWith('img.'));
-                        genres[genreName].push({
-                            id: `${item.name}/${subItem.name}`,
-                            title: subItem.name,
-                            thumbnail: thumbnail ? `/videos/${encodeURIComponent(item.name)}/${encodeURIComponent(subItem.name)}/${encodeURIComponent(thumbnail)}` : null,
-                            videoCount: subVideos.length
-                        });
-                    }
-                }
-            }
-        }
-        
-        res.json(genres);
+        res.json(videoCache.genres);
     } catch (error) {
         console.error('Genres loading error:', error);
         res.status(500).json({ error: 'Failed to load genres' });
@@ -860,16 +948,11 @@ app.get('/api/video-description/:title', auth, async (req, res) => {
 app.get('/api/series/*', 
     auth,
     (req, res) => {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            return res.status(400).json({ error: 'Invalid series ID' });
-        }
-        
         try {
-            const seriesId = req.params[0]; // Get the full path after /api/series/
+            const seriesId = decodeURIComponent(req.params[0]); // Decode URL-encoded path
             
             // Handle both root series and genre/series paths
-            const pathParts = seriesId.split('/');
+            const pathParts = seriesId.split('/').map(part => decodeURIComponent(part));
             if (pathParts.some(part => !validatePath(part))) {
                 return res.status(400).json({ error: 'Invalid series path' });
             }
@@ -877,6 +960,7 @@ app.get('/api/series/*',
             const seriesPath = path.join(videosDir, ...pathParts);
             
             if (!fs.existsSync(seriesPath)) {
+                console.error(`Series not found: ${seriesPath}`);
                 return res.status(404).json({ error: 'Series not found' });
             }
             
@@ -889,9 +973,10 @@ app.get('/api/series/*',
             }
             
             const videos = files.filter(f => f.match(/\.(mp4|webm|ogg|avi|mkv)$/i))
+                .sort() // Sort videos alphabetically
                 .map(v => ({
                     filename: v,
-                    url: `/videos/${encodeURIComponent(seriesId)}/${encodeURIComponent(v)}`,
+                    url: `/videos/${pathParts.map(p => encodeURIComponent(p)).join('/')}/${encodeURIComponent(v)}`,
                     title: v.replace(/\.[^/.]+$/, "").replace(/[._-]/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
                 }));
             
@@ -899,9 +984,11 @@ app.get('/api/series/*',
                 return res.status(404).json({ error: 'No videos found in series' });
             }
             
+            const seriesTitle = pathParts[pathParts.length - 1]; // Use last part as title
+            
             res.json({
                 id: seriesId,
-                title: seriesId,
+                title: seriesTitle,
                 videos
             });
         } catch (error) {
@@ -948,46 +1035,7 @@ app.post('/api/logout', auth, async (req, res) => {
     res.json({ message: 'Logged out successfully' });
 });
 
-// Session cleanup job - remove expired sessions and tokens
-function cleanupExpiredSessions() {
-    const now = Date.now();
-    let cleanedSessions = 0;
-    let cleanedTokens = 0;
-    
-    // Clean expired sessions (24 hours of inactivity)
-    for (const [sessionId, session] of activeSessions.entries()) {
-        const inactiveTime = now - new Date(session.lastActivity).getTime();
-        if (inactiveTime > 24 * 60 * 60 * 1000) {
-            activeSessions.delete(sessionId);
-            cleanedSessions++;
-        }
-    }
-    
-    // Clean expired blacklisted tokens (keep for 24 hours after blacklisting)
-    const expiredTokens = [];
-    for (const token of blacklistedTokens) {
-        try {
-            const decoded = jwt.verify(token, JWT_SECRET, { ignoreExpiration: true });
-            if (now >= decoded.exp * 1000 + (24 * 60 * 60 * 1000)) {
-                expiredTokens.push(token);
-            }
-        } catch {
-            expiredTokens.push(token); // Remove invalid tokens
-        }
-    }
-    
-    expiredTokens.forEach(token => {
-        blacklistedTokens.delete(token);
-        cleanedTokens++;
-    });
-    
-    if (cleanedSessions > 0 || cleanedTokens > 0) {
-        console.log(`🧹 Cleaned ${cleanedSessions} expired sessions, ${cleanedTokens} expired tokens`);
-    }
-}
 
-// Run cleanup every hour
-setInterval(cleanupExpiredSessions, 60 * 60 * 1000);
 
 // Adult page route with proper access control
 app.get('/adult', (req, res) => {
@@ -1097,32 +1145,7 @@ app.delete('/api/admin/users/:id', auth, adminAuth, (req, res) => {
     res.json({ message: 'User deleted' });
 });
 
-// Get active sessions (admin only)
-app.get('/api/admin/sessions', auth, adminAuth, (req, res) => {
-    const sessions = Array.from(activeSessions.values()).map(session => ({
-        userId: session.userId,
-        username: session.username,
-        createdAt: session.createdAt,
-        lastActivity: session.lastActivity
-    }));
-    res.json(sessions);
-});
 
-// Revoke all sessions for a user (admin only)
-app.post('/api/admin/revoke-sessions/:userId', auth, adminAuth, (req, res) => {
-    const userId = req.params.userId;
-    let revokedCount = 0;
-    
-    for (const [sessionId, session] of activeSessions.entries()) {
-        if (session.userId === userId) {
-            blacklistedTokens.add(session.token);
-            activeSessions.delete(sessionId);
-            revokedCount++;
-        }
-    }
-    
-    res.json({ message: `Revoked ${revokedCount} sessions` });
-});
 
 // Force HTTPS (except localhost for development)
 app.use((req, res, next) => {
@@ -1158,3 +1181,4 @@ app.listen(3000, () => {
         console.error('Redis initialization failed:', err.message);
     });
 });
+

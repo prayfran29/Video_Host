@@ -3,7 +3,7 @@ const fs = require('fs');
 
 class Config {
     constructor() {
-        // In Docker, always use /app/videos regardless of VIDEOS_PATH
+        // Use container mount path for videos
         this.videosDir = '/app/videos';
         this.ensureVideosDirectory();
     }
@@ -36,10 +36,8 @@ class Config {
             if (!stats.isDirectory()) {
                 throw new Error('Videos path exists but is not a directory');
             }
-            // Test write permissions
-            const testFile = path.join(this.videosDir, '.write-test');
-            fs.writeFileSync(testFile, 'test');
-            fs.unlinkSync(testFile);
+            // Only check if directory exists and is readable (no write test for read-only mounts)
+            fs.readdirSync(this.videosDir);
             return true;
         } catch (error) {
             console.error(`Videos directory validation failed: ${error.message}`);

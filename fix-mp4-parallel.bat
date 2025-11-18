@@ -33,7 +33,7 @@ goto :eof
 
 :process_batch
 for /l %%i in (1,1,%count%) do (
-    start /b cmd /c "ffmpeg -i "!file%%i!" -c:v libx264 -profile:v baseline -level 3.1 -c:a aac -b:a 128k -movflags +faststart+frag_keyframe+empty_moov -preset medium -crf 23 -r 30 -g 60 -keyint_min 60 -sc_threshold 0 "!file%%i!_temp.mp4" && move "!file%%i!_temp.mp4" "!file%%i!" || del "!file%%i!_temp.mp4""
+    start /b cmd /c "ffmpeg -i "!file%%i!" -c:v libx264 -profile:v baseline -level 3.1 -c:a aac -ac 2 -b:a 128k -movflags +faststart+frag_keyframe+empty_moov -preset medium -crf 23 -r 30 -g 60 -keyint_min 60 -sc_threshold 0 -map 0:v:0 -map 0:a:0 -sn "!file%%i!_temp.mp4" && (move "!file%%i!_temp.mp4" "!file%%i!" || del "!file%%i!_temp.mp4") || del "!file%%i!_temp.mp4""
 )
 REM Wait for batch to complete
 :wait_loop
