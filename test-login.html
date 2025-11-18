@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Login</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #0b0b0b; color: #fff; }
+        .container { max-width: 400px; margin: 0 auto; }
+        button { padding: 10px 20px; margin: 10px; background: #0066ff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        #status { margin: 20px 0; padding: 10px; background: #333; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Test Login Flow</h2>
+        <button onclick="testQRGeneration()">1. Test QR Generation</button>
+        <button onclick="testQRPolling()">2. Test QR Polling</button>
+        <button onclick="testDirectLogin()">3. Test Direct Login</button>
+        <div id="status">Ready to test...</div>
+    </div>
+
+    <script>
+        let currentToken = null;
+
+        async function testQRGeneration() {
+            const status = document.getElementById('status');
+            status.textContent = 'Testing QR generation...';
+            
+            try {
+                const response = await fetch('/api/qr-login', { method: 'POST' });
+                const data = await response.json();
+                
+                if (response.ok) {
+                    currentToken = data.token;
+                    status.innerHTML = `✅ QR Generation Success<br>Token: ${data.token}`;
+                } else {
+                    status.innerHTML = `❌ QR Generation Failed<br>Error: ${JSON.stringify(data)}`;
+                }
+            } catch (error) {
+                status.innerHTML = `❌ QR Generation Error<br>Error: ${error.message}`;
+            }
+        }
+
+        async function testQRPolling() {
+            if (!currentToken) {
+                document.getElementById('status').textContent = '❌ No token - run QR generation first';
+                return;
+            }
+
+            const status = document.getElementById('status');
+            status.textContent = 'Testing QR polling...';
+            
+            try {
+                const response = await fetch(`/api/qr-login/${currentToken}`);
+                const data = await response.json();
+                
+                status.innerHTML = `📡 Polling Result<br>Status: ${response.status}<br>Data: ${JSON.stringify(data, null, 2)}`;
+            } catch (error) {
+                status.innerHTML = `❌ Polling Error<br>Error: ${error.message}`;
+            }
+        }
+
+        async function testDirectLogin() {
+            const status = document.getElementById('status');
+            status.textContent = 'Testing direct login...';
+            
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: 'TVUser', password: 'TVPass123!' })
+                });
+                const data = await response.json();
+                
+                if (response.ok) {
+                    status.innerHTML = `✅ Direct Login Success<br>Token: ${data.token}<br>Username: ${data.username}`;
+                } else {
+                    status.innerHTML = `❌ Direct Login Failed<br>Error: ${JSON.stringify(data)}`;
+                }
+            } catch (error) {
+                status.innerHTML = `❌ Direct Login Error<br>Error: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>
