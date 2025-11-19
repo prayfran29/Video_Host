@@ -54,3 +54,22 @@ out/
 .fusebox/
 .dynamodb/
 .tern-port
+
+# Android/Gradle build files
+AndroidTV/.gradle/
+AndroidTV/build/
+AndroidTV/app/build/
+AndroidTV/local.properties
+
+# Package lock files
+package-lock.json
+yarn.lock
+
+# Runtime/temporary files
+*.tmp
+*.temp
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
