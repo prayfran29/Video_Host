@@ -97,6 +97,11 @@ public class MainActivity extends Activity {
         webSettings.setAllowFileAccessFromFileURLs(true);
         webSettings.setAllowUniversalAccessFromFileURLs(true);
         webSettings.setCacheMode(WebSettings.LOAD_CACHE_ELSE_NETWORK);
+        
+        // Image loading settings for TV
+        webSettings.setLoadsImagesAutomatically(true);
+        webSettings.setBlockNetworkImage(false);
+        webSettings.setBlockNetworkLoads(false);
         webSettings.setDatabaseEnabled(true);
         webSettings.setLoadWithOverviewMode(true);
         webSettings.setUseWideViewPort(true);
@@ -122,8 +127,8 @@ public class MainActivity extends Activity {
         // Clear cache but keep important data
         webView.clearCache(false);
         
-        // Use hardware rendering for video performance
-        webView.setLayerType(WebView.LAYER_TYPE_HARDWARE, null);
+        // Use software rendering for better TV compatibility
+        webView.setLayerType(WebView.LAYER_TYPE_SOFTWARE, null);
         
         // Enable localStorage and sessionStorage for QR login
         webSettings.setDomStorageEnabled(true);

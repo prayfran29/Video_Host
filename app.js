@@ -385,6 +385,10 @@ function streamVideo(req, res, videoPath) {
         return res.status(404).json({ error: 'Video not found' });
     }
     
+    // Detect TV browsers
+    const userAgent = req.headers['user-agent'] || '';
+    const isTV = /Smart-TV|Tizen|WebOS|Android TV|BRAVIA|Samsung|LG webOS/i.test(userAgent);
+    
     const stat = fs.statSync(videoPath);
     const fileSize = stat.size;
     const range = req.headers.range;
@@ -396,28 +400,39 @@ function streamVideo(req, res, videoPath) {
     console.log(`📁 Full path: ${videoPath}`);
     console.log(`🔍 Range header: ${range || 'No range'}`);
     
-    // Streaming headers with balanced caching
-    res.set({
+    // Streaming headers with TV compatibility
+    const headers = {
         'Accept-Ranges': 'bytes',
         'Content-Type': 'video/mp4',
-        'Cache-Control': 'public, max-age=3600', // 1 hour cache
+        'Cache-Control': isTV ? 'no-cache' : 'public, max-age=3600',
         'Connection': 'keep-alive',
         'X-Content-Type-Options': 'nosniff'
-    });
+    };
+    
+    if (isTV) {
+        headers['Transfer-Encoding'] = 'chunked';
+    }
+    
+    res.set(headers);
     
     if (range) {
         const parts = range.replace(/bytes=/, "").split("-");
         const start = parseInt(parts[0], 10);
-        // Conservative chunk sizing to prevent stalls
+        // Adaptive chunk sizing based on device and file size
         let maxChunkSize;
-        if (fileSize > 500 * 1024 * 1024) { // Files > 500MB (like Cowboy Bebop)
-            maxChunkSize = 8 * 1024 * 1024; // 8MB chunks - smaller for reliability
-        } else if (fileSize > 300 * 1024 * 1024) { // Files > 300MB
-            maxChunkSize = 12 * 1024 * 1024; // 12MB chunks
-        } else if (fileSize > 200 * 1024 * 1024) { // Files > 200MB
-            maxChunkSize = 16 * 1024 * 1024; // 16MB chunks
+        if (isTV) {
+            maxChunkSize = 256 * 1024; // 256KB for TV - smaller for better performance
         } else {
-            maxChunkSize = 16 * 1024 * 1024; // 16MB chunks for smaller files
+            // Larger chunks for desktop/mobile based on file size
+            if (fileSize > 1000 * 1024 * 1024) { // Files > 1GB
+                maxChunkSize = 32 * 1024 * 1024; // 32MB chunks
+            } else if (fileSize > 500 * 1024 * 1024) { // Files > 500MB
+                maxChunkSize = 16 * 1024 * 1024; // 16MB chunks
+            } else if (fileSize > 200 * 1024 * 1024) { // Files > 200MB
+                maxChunkSize = 8 * 1024 * 1024; // 8MB chunks
+            } else {
+                maxChunkSize = 4 * 1024 * 1024; // 4MB chunks for smaller files
+            }
         }
         const end = parts[1] ? parseInt(parts[1], 10) : Math.min(start + maxChunkSize - 1, fileSize - 1);
         const chunksize = (end - start) + 1;

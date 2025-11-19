@@ -4,8 +4,21 @@ let watchProgress = {};
 let currentSeries = null;
 let currentVideoIndex = 0;
 
+// Clean up any existing state on page load
+window.addEventListener('beforeunload', () => {
+    // Cancel any ongoing downloads
+    if (window.currentVideoAbortController) {
+        window.currentVideoAbortController.abort();
+    }
+    // Clear intervals
+    if (qrPollInterval) {
+        clearInterval(qrPollInterval);
+    }
+});
+
 // Initialize - check for existing login
 document.addEventListener('DOMContentLoaded', () => {
+    try {
     // Show TV-only buttons (Android WebView only)
     if (navigator.userAgent.includes('wv')) {
         document.getElementById('reloadBtn').style.display = 'inline-block';
@@ -49,6 +62,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const yearElement = document.getElementById('currentYear');
     if (yearElement) {
         yearElement.textContent = new Date().getFullYear();
+    }
+    } catch (error) {
+        console.error('Initialization error:', error);
+        // Force clean reload if initialization fails
+        setTimeout(() => {
+            window.location.href = window.location.href.split('?')[0];
+        }, 1000);
     }
 });
 
@@ -554,7 +574,7 @@ function renderSeries(series) {
             return bLastWatched - aLastWatched;
         });
         
-        inProgress.forEach(series => {
+        inProgress.forEach((series, index) => {
             const card = createSeriesCard(series, true);
             continueGrid.appendChild(card);
         });
@@ -577,6 +597,17 @@ function createSeriesCard(series, showProgress = false) {
     card.className = 'content-card';
     card.tabIndex = 0; // Make focusable for TV navigation
     
+    // Ensure click handler works on TV
+    card.style.cursor = 'pointer';
+    card.addEventListener('click', (e) => {
+        console.log('Card clicked:', series.title);
+        e.stopPropagation();
+        // Force the onclick to execute
+        if (card.onclick) {
+            card.onclick(e);
+        }
+    });
+    
     let lastWatchedEpisode = null;
     
     if (showProgress && watchProgress[series.id]) {
@@ -588,16 +619,15 @@ function createSeriesCard(series, showProgress = false) {
         }, { filename: null, time: 0, progress: null });
         
         if (lastWatched.filename) {
-            // Find the episode title for display
             const video = series.videos?.find(v => v.filename === lastWatched.filename);
             if (video) {
                 lastWatchedEpisode = video.title || video.filename.replace(/\.[^/.]+$/, "").replace(/[._-]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-            }
-            
-            card.onclick = async () => {
-                if (video) {
+                
+                // Continue watching: play last watched video directly
+                card.onclick = async (e) => {
                     const videoIndex = series.videos.indexOf(video);
-                    // Load full series data to ensure proper episode titles
+                    if (!video) return;
+                    
                     try {
                         const response = await fetch(`/api/series/${series.id}`, {
                             headers: { 'Authorization': `Bearer ${authToken}` }
@@ -610,17 +640,28 @@ function createSeriesCard(series, showProgress = false) {
                     } catch (error) {
                         currentSeries = series;
                     }
+                    
                     playVideo(video.url, video.filename, video.title || video.filename.replace(/\.[^/.]+$/, ""), videoIndex);
-                } else {
-                    openSeries(series);
-                }
-            };
+                };
+            } else {
+                card.onclick = () => openSeries(series);
+            }
         } else {
             card.onclick = () => openSeries(series);
         }
     } else {
         card.onclick = () => openSeries(series);
     }
+    
+    // Add keyboard support for TV
+    card.addEventListener('keydown', (e) => {
+        console.log('Card keydown:', e.key, 'on card:', series.title);
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            console.log('Enter/Space on card, triggering click');
+            card.click();
+        }
+    });
     
     let progressText = `${series.videoCount} videos`;
     let episodeInfo = '';
@@ -638,7 +679,7 @@ function createSeriesCard(series, showProgress = false) {
     
     card.innerHTML = `
         <div class="card-image">
-            ${series.thumbnail ? `<img src="${series.thumbnail}" alt="${series.title}" loading="lazy">` : ''}
+            ${series.thumbnail ? `<img src="${series.thumbnail}" alt="${series.title}" loading="lazy" onerror="this.style.display='none'">` : ''}
         </div>
         <div class="card-info">
             <h4>${series.title}</h4>
@@ -761,6 +802,7 @@ function showSeriesModal(series) {
 }
 
 function playVideo(url, filename, title, videoIndex = null) {
+    try {
     const modal = document.getElementById('videoModal');
     const player = document.getElementById('videoPlayer');
     const videoTitle = document.getElementById('videoTitle');
@@ -770,9 +812,24 @@ function playVideo(url, filename, title, videoIndex = null) {
         currentVideoIndex = videoIndex;
     }
     
-    // Reset player and show loading
+    // Reset player and show loading - remove any poster to prevent broken icon
     player.src = '';
+    player.removeAttribute('poster');
+    player.load(); // Force reload to clear any cached poster
     document.getElementById('videoLoading').style.display = 'block';
+    
+    // Add timeout to prevent stuck loading
+    const loadingTimeout = setTimeout(() => {
+        if (loadingDiv.style.display !== 'none') {
+            loadingDiv.innerHTML = '<div>Loading timeout. <button onclick="closeVideo()">Close</button> <button onclick="location.reload()">Retry</button></div>';
+        }
+    }, 60000); // 60 second timeout
+    
+    // Clear timeout when loading completes
+    const originalHideLoading = () => {
+        clearTimeout(loadingTimeout);
+        loadingDiv.style.display = 'none';
+    };
     
     videoTitle.textContent = title;
     details.textContent = currentSeries ? currentSeries.title : '';
@@ -780,30 +837,166 @@ function playVideo(url, filename, title, videoIndex = null) {
     // Load video description
     loadVideoDescription(title);
     
-    // Basic working settings
+    // Detect TV for this function
+    const userAgent = navigator.userAgent || '';
+    const isTV = /Smart-TV|Tizen|WebOS|Android TV|BRAVIA|Samsung|LG webOS|wv/i.test(userAgent);
+    
+    // Basic settings for all devices
     player.preload = 'metadata';
     player.setAttribute('playsinline', 'true');
     player.setAttribute('controls', 'true');
     
 
     
+    // TV-specific fixes for video rendering
+    if (isTV) {
+        player.setAttribute('webkit-playsinline', 'true');
+        player.muted = false;
+        
+        // Simple TV video styling
+        player.style.width = '100%';
+        player.style.height = '400px';
+        player.style.backgroundColor = '#000';
+        player.style.display = 'block';
+        
+        enableFullscreenSupport(player);
+    }
+    
+
+    
     // Old event handlers removed - using blob URL approach instead
     
-    // Parallel chunk downloading for faster loading
+    // TV-optimized loading vs parallel chunks
     const videoUrl = `${window.location.origin}${url}`;
-    console.log('Loading video with parallel downloads:', videoUrl);
-    
     const loadingDiv = document.getElementById('videoLoading');
+    
+
+    
+    if (isTV) {
+        // Simple TV loading with file size optimization
+        
+        // Check file size first for TV optimization
+        fetch(videoUrl, { method: 'HEAD' })
+        .then(response => {
+            const fileSize = parseInt(response.headers.get('content-length'), 10);
+            const fileSizeMB = Math.round(fileSize / (1024 * 1024));
+            
+            if (fileSizeMB > 500) {
+                loadingDiv.innerHTML = `<div>Loading large file (${fileSizeMB}MB) for TV...<br>This may take a moment</div>`;
+            } else {
+                loadingDiv.innerHTML = '<div>Loading video for TV...</div>';
+            }
+        })
+        .catch(() => {
+            loadingDiv.innerHTML = '<div>Loading video for TV...</div>';
+        });
+        
+        // Set TV-specific buffering
+        player.setAttribute('preload', 'auto');
+        player.src = videoUrl;
+        player.load();
+        
+        const handleSuccess = () => {
+            originalHideLoading();
+            // Don't auto-play on TV - let user hit fullscreen first
+            player.pause();
+        };
+        
+        // Wait for video to buffer before showing instruction
+        player.addEventListener('canplaythrough', () => {
+            // Show TV instruction overlay after buffering
+            const videoContainer = player.parentElement;
+            const instruction = document.createElement('div');
+            instruction.id = 'tvInstruction';
+            instruction.style.cssText = `
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(0, 102, 255, 0.9);
+                color: white;
+                padding: 20px;
+                border-radius: 10px;
+                text-align: center;
+                font-size: 18px;
+                font-weight: bold;
+                z-index: 100;
+                border: 3px solid white;
+            `;
+            instruction.innerHTML = `
+                📺 TV Ready!<br>
+                Press <strong>⛶ Fullscreen</strong> button<br>
+                then <strong>▶ Play</strong> to watch video
+            `;
+            
+            videoContainer.style.position = 'relative';
+            videoContainer.appendChild(instruction);
+            
+            // Remove instruction when video starts playing
+            player.addEventListener('play', () => {
+                const inst = document.getElementById('tvInstruction');
+                if (inst) inst.remove();
+            });
+        }, { once: true });
+        
+        player.addEventListener('loadedmetadata', handleSuccess);
+        player.addEventListener('canplay', handleSuccess);
+        
+        player.addEventListener('error', (e) => {
+            loadingDiv.innerHTML = '<div>Video failed to load on TV. <button onclick="closeVideo()">Close</button></div>';
+        });
+        
+        // Show modal and update controls
+        modal.style.display = 'block';
+        document.getElementById('seriesModal').style.display = 'none';
+        updateVideoControls();
+        
+        // TV-specific button focus setup
+        setTimeout(() => {
+            const firstButton = modal.querySelector('button[tabindex="0"]');
+            if (firstButton) {
+                firstButton.focus();
+            }
+        }, 500);
+        
+        // Set up progress tracking for TV
+        if (currentUser && currentSeries) {
+            player.ontimeupdate = () => saveProgress(filename, player.currentTime, player.duration);
+            player.onended = () => {
+                saveProgress(filename, player.duration, player.duration, true);
+                playNextVideo();
+            };
+        } else {
+            player.onended = () => playNextVideo();
+        }
+        
+
+        
+        return; // Skip chunked loading for TV
+    }
+    
+    // Desktop/mobile: Use chunked loading
+    console.log('Desktop/mobile: Using parallel chunk loading');
     loadingDiv.innerHTML = '<div>Loading video...</div>';
     
     // Create abort controller for canceling downloads
     const abortController = new AbortController();
     window.currentVideoAbortController = abortController;
     
-    // First get file size
-    fetch(videoUrl, { method: 'HEAD', signal: abortController.signal })
+    // First get file size with HTTP/1.1 fallback
+    fetch(videoUrl, { 
+        method: 'HEAD', 
+        signal: abortController.signal,
+        headers: {
+            'Connection': 'keep-alive',
+            'Cache-Control': 'no-cache'
+        }
+    })
     .then(response => {
         if (!response.ok) {
+            if (response.status === 404) {
+                throw new Error(`Video file not found: ${response.status}`);
+            }
             throw new Error(`Server error: ${response.status}`);
         }
         
@@ -813,7 +1006,11 @@ function playVideo(url, filename, title, videoIndex = null) {
         }
         
         const fileSizeMB = Math.round(total / (1024 * 1024));
-        console.log(`Downloading ${fileSizeMB}MB video in parallel chunks`);
+        // For very large files, skip chunking and go direct
+        if (fileSizeMB > 2000) {
+            console.log('File too large for chunking, using direct loading');
+            throw new Error('File too large for chunking');
+        }
         
         // Create circular progress wheel
         loadingDiv.innerHTML = `
@@ -830,9 +1027,18 @@ function playVideo(url, filename, title, videoIndex = null) {
             </div>
         `;
         
-        // Adaptive chunking based on file size
-        const numChunks = Math.min(20, Math.max(4, Math.floor(fileSizeMB / 100)));
+        // Conservative chunking for large files
+        let numChunks;
+        if (fileSizeMB > 500) {
+            numChunks = 4; // Very few chunks for large files
+        } else if (fileSizeMB > 200) {
+            numChunks = 6; // Fewer chunks for medium files
+        } else {
+            numChunks = Math.min(10, Math.max(4, Math.floor(fileSizeMB / 50)));
+        }
         const chunkSize = Math.ceil(total / numChunks);
+        
+        console.log(`Downloading ${fileSizeMB}MB video in ${numChunks} chunks`);
         
         if (!numChunks || isNaN(numChunks) || numChunks <= 0) {
             throw new Error('Invalid chunk calculation');
@@ -847,7 +1053,11 @@ function playVideo(url, filename, title, videoIndex = null) {
             
             const chunkPromise = Promise.race([
                 fetch(videoUrl, {
-                    headers: { 'Range': `bytes=${start}-${end}` },
+                    headers: { 
+                        'Range': `bytes=${start}-${end}`,
+                        'Connection': 'keep-alive',
+                        'Cache-Control': 'no-cache'
+                    },
                     signal: abortController.signal
                 }).then(async response => {
                     if (response.status === 206 || response.status === 200) {
@@ -930,7 +1140,7 @@ function playVideo(url, filename, title, videoIndex = null) {
         
         player.onloadedmetadata = () => {
             console.log('Video ready to play');
-            loadingDiv.style.display = 'none';
+            originalHideLoading();
             player.play().catch(e => console.log('Auto-play failed:', e));
         };
         
@@ -944,17 +1154,32 @@ function playVideo(url, filename, title, videoIndex = null) {
             return;
         }
         console.error('Parallel video loading failed:', error);
-        loadingDiv.innerHTML = '<div>Parallel download failed, trying single stream...</div>';
+        loadingDiv.innerHTML = '<div>Loading video directly...</div>';
         
-        // Fallback to direct video loading
+        // Fallback to direct video loading with better error handling
+        console.log('Attempting direct video loading fallback');
+        
+        // Clear any existing event listeners
+        player.onloadedmetadata = null;
+        player.oncanplay = null;
+        player.onerror = null;
+        
         player.src = videoUrl;
         player.load();
         
-        player.onloadedmetadata = () => {
+        const handleFallbackSuccess = () => {
             console.log('Video ready to play (fallback)');
-            loadingDiv.style.display = 'none';
+            originalHideLoading();
             player.play().catch(e => console.log('Auto-play failed:', e));
         };
+        
+        player.addEventListener('loadedmetadata', handleFallbackSuccess, { once: true });
+        player.addEventListener('canplay', handleFallbackSuccess, { once: true });
+        
+        player.addEventListener('error', (e) => {
+            console.error('Fallback video error:', player.error);
+            loadingDiv.innerHTML = '<div>Video failed to load. <button onclick="closeVideo()">Close</button></div>';
+        }, { once: true });
     });
     
     player.onerror = (e) => {
@@ -979,7 +1204,13 @@ function playVideo(url, filename, title, videoIndex = null) {
     modal.style.display = 'block';
     document.getElementById('seriesModal').style.display = 'none';
     
-
+    } catch (error) {
+        console.error('Video playback error:', error);
+        const loadingDiv = document.getElementById('videoLoading');
+        if (loadingDiv) {
+            loadingDiv.innerHTML = '<div>Video error. <button onclick="closeVideo()">Close</button></div>';
+        }
+    }
 }
 
 // TV-specific fullscreen support
@@ -1111,6 +1342,7 @@ function closeVideo() {
     player.currentTime = 0;
     player.removeAttribute('src');
     player.removeAttribute('poster');
+    player.load(); // Force reload to clear any cached content
     
     // Clear all event listeners
     const newPlayer = player.cloneNode(true);
@@ -1248,15 +1480,35 @@ function updateSwimlanes() {
     
     if (continueWatching && continueWatching.children.length > 0) {
         swimlanes.push({ element: continueWatching, name: 'Continue Watching' });
+        // Make all cards in continue watching focusable
+        Array.from(continueWatching.children).forEach((card, index) => {
+            card.tabIndex = 0;
+            card.setAttribute('data-swimlane', 'continue-watching');
+            card.setAttribute('data-index', index);
+        });
     }
+    
     genreSections.forEach(section => {
         if (section.children.length > 0) {
             const sectionTitle = section.closest('.section')?.querySelector('h3')?.textContent || 'Genre';
             swimlanes.push({ element: section, name: sectionTitle });
+            // Make all cards in genre sections focusable
+            Array.from(section.children).forEach((card, index) => {
+                card.tabIndex = 0;
+                card.setAttribute('data-swimlane', sectionTitle);
+                card.setAttribute('data-index', index);
+            });
         }
     });
+    
     if (allSeries && allSeries.children.length > 0) {
         swimlanes.push({ element: allSeries, name: 'All Series' });
+        // Make all cards in all series focusable
+        Array.from(allSeries.children).forEach((card, index) => {
+            card.tabIndex = 0;
+            card.setAttribute('data-swimlane', 'all-series');
+            card.setAttribute('data-index', index);
+        });
     }
 }
 
@@ -1284,13 +1536,21 @@ function focusSwimlane(index) {
     // Focus first card in swimlane
     const firstCard = swimlane.element.querySelector('.content-card');
     if (firstCard) {
-        // Remove swimlane border when focusing first card
+        firstCard.tabIndex = 0;
+        firstCard.focus();
+        
+        // Add visual border to focused card
+        document.querySelectorAll('.card-focused').forEach(el => {
+            el.classList.remove('card-focused');
+        });
+        firstCard.classList.add('card-focused');
+        
+        // Remove swimlane border when card is focused
         setTimeout(() => {
             document.querySelectorAll('.swimlane-focused').forEach(el => {
                 el.classList.remove('swimlane-focused');
             });
         }, 10);
-        firstCard.focus();
     }
 }
 
@@ -1410,6 +1670,22 @@ document.addEventListener('keydown', (event) => {
     
     if (!videoVisible && !seriesVisible && !authVisible) {
         switch(event.key) {
+            case 'Enter':
+            case ' ':
+                // Trigger click on focused card
+                const focusedCard = document.activeElement;
+                
+                // Visual debug indicator
+                const indicator = document.createElement('div');
+                indicator.style.cssText = 'position: fixed; top: 10px; left: 10px; background: yellow; color: black; padding: 10px; z-index: 9999; font-size: 14px;';
+                
+                if (focusedCard && focusedCard.classList.contains('content-card')) {
+                    event.preventDefault();
+                    if (focusedCard.onclick) {
+                        focusedCard.onclick();
+                    }
+                }
+                break;
             case 'ArrowDown':
                 event.preventDefault();
                 updateSwimlanes();
@@ -1470,12 +1746,17 @@ document.addEventListener('keydown', (event) => {
                             nextIndex = currentCardIndex > 0 ? currentCardIndex - 1 : cards.length - 1;
                         }
                         
-                        // Remove swimlane border before focusing card
+                        // Remove previous card focus styling
+                        document.querySelectorAll('.card-focused').forEach(el => {
+                            el.classList.remove('card-focused');
+                        });
                         document.querySelectorAll('.swimlane-focused').forEach(el => {
                             el.classList.remove('swimlane-focused');
                         });
                         
+                        // Focus and highlight new card
                         cards[nextIndex].focus();
+                        cards[nextIndex].classList.add('card-focused');
                     }
                 }
                 break;

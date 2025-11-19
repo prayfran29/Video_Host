@@ -258,7 +258,8 @@ body {
 }
 
 .content-card:hover,
-.content-card:focus {
+.content-card:focus,
+.content-card.card-focused {
     transform: translateY(-5px);
     box-shadow: 0 10px 25px rgba(0, 102, 255, 0.8);
     outline: 4px solid #0066ff;
@@ -297,6 +298,13 @@ body {
     height: 100%;
     object-fit: contain;
     object-position: center;
+}
+
+/* Hide broken images on TV */
+.card-image img[src=""],
+.card-image img:not([src]),
+.card-image img[src="null"] {
+    display: none;
 }
 
 .card-image::after {
