@@ -66,7 +66,7 @@ app.use((req, res, next) => {
 
 // Handle request timeouts (longer for video streaming)
 app.use((req, res, next) => {
-    const timeout = req.path.includes('/videos/') ? 120000 : 30000; // 2 minutes for videos
+    const timeout = req.path.includes('/videos/') ? 300000 : 30000; // 5 minutes for videos
     req.setTimeout(timeout, () => {
         if (!res.headersSent) {
             res.status(408).json({ error: 'Request timeout' });
@@ -379,15 +379,11 @@ app.use('/videos', (req, res, next) => {
     }
 });
 
-// Video streaming function with range support
+// Unified progressive streaming function for all devices
 function streamVideo(req, res, videoPath) {
     if (!fs.existsSync(videoPath)) {
         return res.status(404).json({ error: 'Video not found' });
     }
-    
-    // Detect TV browsers
-    const userAgent = req.headers['user-agent'] || '';
-    const isTV = /Smart-TV|Tizen|WebOS|Android TV|BRAVIA|Samsung|LG webOS/i.test(userAgent);
     
     const stat = fs.statSync(videoPath);
     const fileSize = stat.size;
@@ -396,50 +392,30 @@ function streamVideo(req, res, videoPath) {
     // Log video info for diagnostics
     const fileName = path.basename(videoPath);
     const fileSizeMB = (fileSize / (1024 * 1024)).toFixed(1);
-    console.log(`📹 Streaming: ${fileName} (${fileSizeMB}MB)`);
-    console.log(`📁 Full path: ${videoPath}`);
+    console.log(`📹 Progressive streaming: ${fileName} (${fileSizeMB}MB)`);
     console.log(`🔍 Range header: ${range || 'No range'}`);
     
-    // Streaming headers with TV compatibility
+    // Unified streaming headers optimized for all devices
     const headers = {
         'Accept-Ranges': 'bytes',
         'Content-Type': 'video/mp4',
-        'Cache-Control': isTV ? 'no-cache' : 'public, max-age=3600',
+        'Cache-Control': 'public, max-age=3600',
         'Connection': 'keep-alive',
         'X-Content-Type-Options': 'nosniff'
     };
-    
-    if (isTV) {
-        headers['Transfer-Encoding'] = 'chunked';
-    }
     
     res.set(headers);
     
     if (range) {
         const parts = range.replace(/bytes=/, "").split("-");
         const start = parseInt(parts[0], 10);
-        // Adaptive chunk sizing based on device and file size
-        let maxChunkSize;
-        if (isTV) {
-            maxChunkSize = 256 * 1024; // 256KB for TV - smaller for better performance
-        } else {
-            // Larger chunks for desktop/mobile based on file size
-            if (fileSize > 1000 * 1024 * 1024) { // Files > 1GB
-                maxChunkSize = 32 * 1024 * 1024; // 32MB chunks
-            } else if (fileSize > 500 * 1024 * 1024) { // Files > 500MB
-                maxChunkSize = 16 * 1024 * 1024; // 16MB chunks
-            } else if (fileSize > 200 * 1024 * 1024) { // Files > 200MB
-                maxChunkSize = 8 * 1024 * 1024; // 8MB chunks
-            } else {
-                maxChunkSize = 4 * 1024 * 1024; // 4MB chunks for smaller files
-            }
-        }
-        const end = parts[1] ? parseInt(parts[1], 10) : Math.min(start + maxChunkSize - 1, fileSize - 1);
+        // Use larger initial chunk for faster startup, then smaller chunks
+        const isFirstChunk = start === 0;
+        const chunkSize = isFirstChunk ? (2 * 1024 * 1024) : (512 * 1024); // 2MB first, then 512KB
+        const end = parts[1] ? parseInt(parts[1], 10) : Math.min(start + chunkSize - 1, fileSize - 1);
         const chunksize = (end - start) + 1;
         
-        // Log chunk info
-        const chunkMB = (chunksize / (1024 * 1024)).toFixed(1);
-        console.log(`📦 Chunk: ${start}-${end} (${chunkMB}MB of ${fileSizeMB}MB total)`);
+        console.log(`📦 Progressive chunk: ${(chunksize / (1024 * 1024)).toFixed(1)}MB`);
         
         res.status(206).set({
             'Content-Range': `bytes ${start}-${end}/${fileSize}`,
@@ -448,19 +424,8 @@ function streamVideo(req, res, videoPath) {
         
         const stream = fs.createReadStream(videoPath, { start, end });
         
-        // Log timing
-        const startTime = Date.now();
-        stream.on('end', () => {
-            const duration = Date.now() - startTime;
-            console.log(`✅ Chunk completed in ${duration}ms`);
-        });
-        
         stream.on('error', (err) => {
             console.error(`❌ Stream error: ${err.message}`);
-        });
-        
-        // Handle stream errors and client disconnects
-        stream.on('error', () => {
             if (!res.headersSent) res.status(500).end();
         });
         
@@ -473,7 +438,8 @@ function streamVideo(req, res, videoPath) {
         res.set('Content-Length', fileSize);
         const stream = fs.createReadStream(videoPath);
         
-        stream.on('error', () => {
+        stream.on('error', (err) => {
+            console.error(`❌ Stream error: ${err.message}`);
             if (!res.headersSent) res.status(500).end();
         });
         

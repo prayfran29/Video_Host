@@ -1,81 +1,53 @@
-# Magnus Video Streams - Video Hosting Site
+# Video Host - Streaming Platform
 
-A Crunchyroll-inspired video hosting platform with authentication, search, and video playback capabilities.
+A comprehensive video hosting and streaming platform with TV compatibility and progressive streaming support.
 
-## Features
+## Project Structure
 
-- **User Authentication**: Register/Login with JWT tokens
-- **Video Search**: Search videos by title or genre
-- **Video Player**: Built-in HTML5 video player with modal overlay
-- **Responsive Design**: Mobile-friendly Crunchyroll-inspired UI
-- **Docker Support**: Containerized for easy deployment
-
-## Configuration
-
-### Videos Directory
-
-The videos directory can be configured to be anywhere on your system by setting the `VIDEOS_PATH` environment variable:
-
-```bash
-# In your .env file
-VIDEOS_PATH=./videos                    # Relative to project (default)
-VIDEOS_PATH=C:\Videos                   # Absolute Windows path
-VIDEOS_PATH=/home/user/videos           # Absolute Linux/Mac path
-VIDEOS_PATH=D:\Media\MyVideos          # Custom drive on Windows
 ```
-
-**Examples:**
-- `VIDEOS_PATH=./videos` - Default, creates videos folder in project directory
-- `VIDEOS_PATH=C:\Users\YourName\Videos` - Use your Windows user Videos folder
-- `VIDEOS_PATH=/mnt/nas/videos` - Use a network attached storage
-- `VIDEOS_PATH=D:\Media` - Use a different drive
-
-The application will automatically create the directory if it doesn't exist and validate write permissions on startup.
+Video Host/
+├── scripts/
+│   ├── video-optimization/     # Video conversion and optimization scripts
+│   └── deployment/            # Deployment and infrastructure scripts
+├── docs/                      # Documentation and guides
+├── config/                    # Configuration files
+├── data/                      # Application data (users, progress, etc.)
+├── public/                    # Static web assets
+├── AndroidTV/                 # Android TV client application
+└── videos/                    # Video content directory
+```
 
 ## Quick Start
 
-### Using Docker (Recommended)
+1. **Install Dependencies**: `npm install`
+2. **Configure Environment**: Copy `config/.env.example` to `.env`
+3. **Optimize Videos**: Run `scripts/video-optimization/smart-video-optimizer.bat`
+4. **Start Server**: `node app.js`
 
+## Key Features
+
+- **Progressive Streaming**: Optimized for immediate playback
+- **TV Compatibility**: Works with Smart TVs and streaming devices
+- **Multi-format Support**: Converts various video formats to streaming-ready MP4
+- **User Management**: Progress tracking and user authentication
+- **Mobile & Desktop**: Responsive web interface
+
+## Video Optimization
+
+Use the smart video optimizer to ensure all videos are streaming-ready:
 ```bash
-# Build and run with docker-compose
-docker-compose up --build
-
-# Or build and run manually
-docker build -t video-host .
-docker run -p 3000:3000 video-host
+scripts/video-optimization/smart-video-optimizer.bat
 ```
 
-### Local Development
+This automatically:
+- Converts to H.264 baseline profile
+- Downmixes multi-channel audio to stereo
+- Adds streaming metadata (faststart)
+- Limits resolution and bitrate for optimal streaming
 
-```bash
-# Install dependencies
-npm install
+## Documentation
 
-# Start the server
-npm start
-
-# Development with auto-reload
-npm run dev
-```
-
-## Usage
-
-1. Open http://localhost:3000 in your browser
-2. Click the profile icon to register/login
-3. Use the search bar to find videos
-4. Click on any video card to play the video
-5. Browse different content sections
-
-## API Endpoints
-
-- `POST /api/register` - Register new user
-- `POST /api/login` - User login
-- `GET /api/videos` - Get all videos (with optional search)
-- `GET /api/videos/:id` - Get specific video
-
-## Technologies
-
-- Frontend: HTML5, CSS3, JavaScript
-- Backend: Node.js, Express.js
-- Authentication: JWT, bcrypt
-- Containerization: Docker, Docker Compose
+- [Progressive Streaming Guide](docs/PROGRESSIVE_STREAMING_GUIDE.md)
+- [Kubernetes Deployment](docs/README-k8s.md)
+- [Cloudflare Optimization](docs/cloudflare-optimization.md)
+- [Tunnel Setup](docs/tunnel-setup.md)

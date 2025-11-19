@@ -6,10 +6,6 @@ let currentVideoIndex = 0;
 
 // Clean up any existing state on page load
 window.addEventListener('beforeunload', () => {
-    // Cancel any ongoing downloads
-    if (window.currentVideoAbortController) {
-        window.currentVideoAbortController.abort();
-    }
     // Clear intervals
     if (qrPollInterval) {
         clearInterval(qrPollInterval);
@@ -837,360 +833,118 @@ function playVideo(url, filename, title, videoIndex = null) {
     // Load video description
     loadVideoDescription(title);
     
-    // Detect TV for this function
-    const userAgent = navigator.userAgent || '';
-    const isTV = /Smart-TV|Tizen|WebOS|Android TV|BRAVIA|Samsung|LG webOS|wv/i.test(userAgent);
-    
-    // Basic settings for all devices
-    player.preload = 'metadata';
-    player.setAttribute('playsinline', 'true');
-    player.setAttribute('controls', 'true');
-    
-
-    
-    // TV-specific fixes for video rendering
-    if (isTV) {
-        player.setAttribute('webkit-playsinline', 'true');
-        player.muted = false;
-        
-        // Simple TV video styling
-        player.style.width = '100%';
-        player.style.height = '400px';
-        player.style.backgroundColor = '#000';
-        player.style.display = 'block';
-        
-        enableFullscreenSupport(player);
-    }
-    
-
-    
-    // Old event handlers removed - using blob URL approach instead
-    
-    // TV-optimized loading vs parallel chunks
+    // Unified progressive streaming for all devices
     const videoUrl = `${window.location.origin}${url}`;
     const loadingDiv = document.getElementById('videoLoading');
     
-
+    // Detect device type for UI messaging
+    const userAgent = navigator.userAgent || '';
+    const isTV = /Smart-TV|Tizen|WebOS|Android TV|BRAVIA|Samsung|LG webOS|wv/i.test(userAgent);
+    
+    // Aggressive progressive streaming settings
+    player.preload = 'metadata'; // Load just enough to start
+    player.setAttribute('playsinline', 'true');
+    player.setAttribute('controls', 'true');
+    player.setAttribute('crossorigin', 'anonymous');
     
     if (isTV) {
-        // Simple TV loading with file size optimization
-        
-        // Check file size first for TV optimization
-        fetch(videoUrl, { method: 'HEAD' })
-        .then(response => {
-            const fileSize = parseInt(response.headers.get('content-length'), 10);
-            const fileSizeMB = Math.round(fileSize / (1024 * 1024));
-            
-            if (fileSizeMB > 500) {
-                loadingDiv.innerHTML = `<div>Loading large file (${fileSizeMB}MB) for TV...<br>This may take a moment</div>`;
-            } else {
-                loadingDiv.innerHTML = '<div>Loading video for TV...</div>';
-            }
-        })
-        .catch(() => {
-            loadingDiv.innerHTML = '<div>Loading video for TV...</div>';
-        });
-        
-        // Set TV-specific buffering
-        player.setAttribute('preload', 'auto');
-        player.src = videoUrl;
-        player.load();
-        
-        const handleSuccess = () => {
-            originalHideLoading();
-            // Don't auto-play on TV - let user hit fullscreen first
-            player.pause();
-        };
-        
-        // Wait for video to buffer before showing instruction
-        player.addEventListener('canplaythrough', () => {
-            // Show TV instruction overlay after buffering
-            const videoContainer = player.parentElement;
-            const instruction = document.createElement('div');
-            instruction.id = 'tvInstruction';
-            instruction.style.cssText = `
-                position: absolute;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
-                background: rgba(0, 102, 255, 0.9);
-                color: white;
-                padding: 20px;
-                border-radius: 10px;
-                text-align: center;
-                font-size: 18px;
-                font-weight: bold;
-                z-index: 100;
-                border: 3px solid white;
-            `;
-            instruction.innerHTML = `
-                📺 TV Ready!<br>
-                Press <strong>⛶ Fullscreen</strong> button<br>
-                then <strong>▶ Play</strong> to watch video
-            `;
-            
-            videoContainer.style.position = 'relative';
-            videoContainer.appendChild(instruction);
-            
-            // Remove instruction when video starts playing
-            player.addEventListener('play', () => {
-                const inst = document.getElementById('tvInstruction');
-                if (inst) inst.remove();
-            });
-        }, { once: true });
-        
-        player.addEventListener('loadedmetadata', handleSuccess);
-        player.addEventListener('canplay', handleSuccess);
-        
-        player.addEventListener('error', (e) => {
-            loadingDiv.innerHTML = '<div>Video failed to load on TV. <button onclick="closeVideo()">Close</button></div>';
-        });
-        
-        // Show modal and update controls
-        modal.style.display = 'block';
-        document.getElementById('seriesModal').style.display = 'none';
-        updateVideoControls();
-        
-        // TV-specific button focus setup
-        setTimeout(() => {
-            const firstButton = modal.querySelector('button[tabindex="0"]');
-            if (firstButton) {
-                firstButton.focus();
-            }
-        }, 500);
-        
-        // Set up progress tracking for TV
-        if (currentUser && currentSeries) {
-            player.ontimeupdate = () => saveProgress(filename, player.currentTime, player.duration);
-            player.onended = () => {
-                saveProgress(filename, player.duration, player.duration, true);
-                playNextVideo();
-            };
-        } else {
-            player.onended = () => playNextVideo();
-        }
-        
-
-        
-        return; // Skip chunked loading for TV
+        player.setAttribute('webkit-playsinline', 'true');
+        player.muted = false;
+        enableFullscreenSupport(player);
     }
     
-    // Desktop/mobile: Use chunked loading
-    console.log('Desktop/mobile: Using parallel chunk loading');
-    loadingDiv.innerHTML = '<div>Loading video...</div>';
+    // Set video source
+    player.src = videoUrl;
+    player.load();
     
-    // Create abort controller for canceling downloads
-    const abortController = new AbortController();
-    window.currentVideoAbortController = abortController;
+    let hasStartedPlaying = false;
+    let loadTimeout;
     
-    // First get file size with HTTP/1.1 fallback
-    fetch(videoUrl, { 
-        method: 'HEAD', 
-        signal: abortController.signal,
-        headers: {
-            'Connection': 'keep-alive',
-            'Cache-Control': 'no-cache'
-        }
-    })
-    .then(response => {
-        if (!response.ok) {
-            if (response.status === 404) {
-                throw new Error(`Video file not found: ${response.status}`);
-            }
-            throw new Error(`Server error: ${response.status}`);
-        }
-        
-        const total = parseInt(response.headers.get('content-length'), 10);
-        if (!total || isNaN(total) || total <= 0) {
-            throw new Error('Invalid file size from server');
-        }
-        
-        const fileSizeMB = Math.round(total / (1024 * 1024));
-        // For very large files, skip chunking and go direct
-        if (fileSizeMB > 2000) {
-            console.log('File too large for chunking, using direct loading');
-            throw new Error('File too large for chunking');
-        }
-        
-        // Create circular progress wheel
-        loadingDiv.innerHTML = `
-            <div style="display: flex; justify-content: center; align-items: center; margin: 20px 0;">
-                <div style="position: relative; width: 120px; height: 120px;">
-                    <svg width="120" height="120" style="transform: rotate(-90deg);">
-                        <circle cx="60" cy="60" r="50" fill="none" stroke="#333" stroke-width="8"/>
-                        <circle id="progressCircle" cx="60" cy="60" r="50" fill="none" stroke="#0066ff" stroke-width="8" 
-                                stroke-dasharray="314" stroke-dashoffset="314" stroke-linecap="round"/>
-                    </svg>
-                    <div id="progressText" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
-                                                  font-size: 18px; font-weight: bold; color: #0066ff;">0%</div>
+    // Show appropriate loading message
+    loadingDiv.innerHTML = isTV ? '<div>Preparing TV video...</div>' : '<div>Loading video...</div>';
+    
+    const showReady = () => {
+        const message = isTV ? 
+            `<div style="text-align: center; padding: 20px;">
+                <div style="font-size: 24px; margin-bottom: 15px;">📺 Ready to Play</div>
+                <div style="font-size: 16px; color: #0066ff;">
+                    Press <strong>▶ PLAY</strong> to start<br>
+                    Video streams as you watch
                 </div>
-            </div>
-        `;
+            </div>` :
+            `<div style="text-align: center; padding: 20px;">
+                <div style="font-size: 20px; margin-bottom: 10px;">▶ Ready to Play</div>
+                <div style="color: #0066ff;">Video will stream progressively</div>
+            </div>`;
         
-        // Conservative chunking for large files
-        let numChunks;
-        if (fileSizeMB > 500) {
-            numChunks = 4; // Very few chunks for large files
-        } else if (fileSizeMB > 200) {
-            numChunks = 6; // Fewer chunks for medium files
-        } else {
-            numChunks = Math.min(10, Math.max(4, Math.floor(fileSizeMB / 50)));
-        }
-        const chunkSize = Math.ceil(total / numChunks);
-        
-        console.log(`Downloading ${fileSizeMB}MB video in ${numChunks} chunks`);
-        
-        if (!numChunks || isNaN(numChunks) || numChunks <= 0) {
-            throw new Error('Invalid chunk calculation');
-        }
-        
-        const chunkPromises = [];
-        const chunkProgress = new Array(numChunks).fill(0);
-        
-        for (let i = 0; i < numChunks; i++) {
-            const start = i * chunkSize;
-            const end = Math.min(start + chunkSize - 1, total - 1);
-            
-            const chunkPromise = Promise.race([
-                fetch(videoUrl, {
-                    headers: { 
-                        'Range': `bytes=${start}-${end}`,
-                        'Connection': 'keep-alive',
-                        'Cache-Control': 'no-cache'
-                    },
-                    signal: abortController.signal
-                }).then(async response => {
-                    if (response.status === 206 || response.status === 200) {
-                        const reader = response.body.getReader();
-                        const chunks = [];
-                        let receivedLength = 0;
-                        const expectedLength = end - start + 1;
-                        
-                        while(true) {
-                            const {done, value} = await reader.read();
-                            if (done) break;
-                            
-                            chunks.push(value);
-                            receivedLength += value.length;
-                            
-                            const progress = Math.min(100, Math.round((receivedLength / expectedLength) * 100));
-                            chunkProgress[i] = progress;
-                            
-                            const totalProgress = Math.round(chunkProgress.reduce((a, b) => a + b, 0) / numChunks);
-                            const progressCircle = document.getElementById('progressCircle');
-                            const progressText = document.getElementById('progressText');
-                            
-                            if (progressCircle && progressText) {
-                                const circumference = 314;
-                                const offset = circumference - (totalProgress / 100) * circumference;
-                                progressCircle.style.strokeDashoffset = offset;
-                                progressText.textContent = `${totalProgress}%`;
-                            }
-                        }
-                        
-                        const uint8Array = new Uint8Array(receivedLength);
-                        let position = 0;
-                        for(let chunk of chunks) {
-                            uint8Array.set(chunk, position);
-                            position += chunk.length;
-                        }
-                        
-                        return uint8Array.buffer;
-                    }
-                    throw new Error(`Chunk ${i} failed`);
-                }),
-                new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error(`Chunk ${i} timeout`)), 60000)
-                )
-            ]).catch(error => {
-                const chunkDiv = document.getElementById(`chunk${i}`);
-                if (chunkDiv) {
-                    chunkDiv.textContent = `${i + 1}: Error`;
-                    chunkDiv.style.background = '#ff6b6b';
-                }
-                throw error;
-            });
-            
-            chunkPromises.push(chunkPromise);
-        }
-        
-        return Promise.all(chunkPromises);
-    })
-    .then(chunks => {
-        console.log('All chunks downloaded, assembling video');
-        loadingDiv.innerHTML = `
-            <div>Preparing video...</div>
-            <div style="display: flex; justify-content: center; align-items: center; margin: 20px 0;">
-                <div style="position: relative; width: 120px; height: 120px;">
-                    <svg width="120" height="120" style="transform: rotate(-90deg);">
-                        <circle cx="60" cy="60" r="50" fill="none" stroke="#333" stroke-width="8"/>
-                        <circle cx="60" cy="60" r="50" fill="none" stroke="#0066ff" stroke-width="8" 
-                                stroke-dasharray="314" stroke-dashoffset="0" stroke-linecap="round"/>
-                    </svg>
-                    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
-                                font-size: 18px; font-weight: bold; color: #0066ff;">100%</div>
-                </div>
-            </div>
-        `;
-        const blob = new Blob(chunks, { type: 'video/mp4' });
-        const blobUrl = URL.createObjectURL(blob);
-        
-        player.src = blobUrl;
-        player.load();
-        
-        player.onloadedmetadata = () => {
-            console.log('Video ready to play');
-            originalHideLoading();
-            player.play().catch(e => console.log('Auto-play failed:', e));
-        };
-        
-        // Clean up blob URL when video ends or errors
-        player.onended = () => URL.revokeObjectURL(blobUrl);
-        player.onerror = () => URL.revokeObjectURL(blobUrl);
-    })
-    .catch(error => {
-        if (error.name === 'AbortError') {
-            console.log('Video loading cancelled by user');
-            return;
-        }
-        console.error('Parallel video loading failed:', error);
-        loadingDiv.innerHTML = '<div>Loading video directly...</div>';
-        
-        // Fallback to direct video loading with better error handling
-        console.log('Attempting direct video loading fallback');
-        
-        // Clear any existing event listeners
-        player.onloadedmetadata = null;
-        player.oncanplay = null;
-        player.onerror = null;
-        
-        player.src = videoUrl;
-        player.load();
-        
-        const handleFallbackSuccess = () => {
-            console.log('Video ready to play (fallback)');
-            originalHideLoading();
-            player.play().catch(e => console.log('Auto-play failed:', e));
-        };
-        
-        player.addEventListener('loadedmetadata', handleFallbackSuccess, { once: true });
-        player.addEventListener('canplay', handleFallbackSuccess, { once: true });
-        
-        player.addEventListener('error', (e) => {
-            console.error('Fallback video error:', player.error);
-            loadingDiv.innerHTML = '<div>Video failed to load. <button onclick="closeVideo()">Close</button></div>';
-        }, { once: true });
-    });
-    
-    player.onerror = (e) => {
-        console.error('Video error:', player.error);
+        loadingDiv.innerHTML = message;
+        setTimeout(() => {
+            if (!hasStartedPlaying) loadingDiv.style.display = 'none';
+        }, 3000);
     };
     
-
+    // Progressive loading event handlers
+    player.addEventListener('loadedmetadata', () => {
+        console.log('Progressive: Video metadata loaded');
+        showReady();
+    });
+    
+    player.addEventListener('canplay', () => {
+        console.log('Progressive: Video ready to play');
+        showReady();
+    });
+    
+    player.addEventListener('play', () => {
+        hasStartedPlaying = true;
+        loadingDiv.style.display = 'none';
+    });
+    
+    player.addEventListener('waiting', () => {
+        loadingDiv.style.display = 'block';
+        loadingDiv.innerHTML = '<div>Buffering...</div>';
+    });
+    
+    player.addEventListener('canplaythrough', () => {
+        if (hasStartedPlaying) loadingDiv.style.display = 'none';
+    });
+    
+    player.addEventListener('error', (e) => {
+        console.error('Progressive video error:', player.error);
+        loadingDiv.innerHTML = `
+            <div style="text-align: center; padding: 20px;">
+                <div style="color: #ff6b6b; margin-bottom: 10px;">❌ Video Error</div>
+                <div style="margin-bottom: 15px;">Failed to load video</div>
+                <button onclick="closeVideo()" style="background: #0066ff; color: white; border: none; padding: 10px 20px; border-radius: 5px;">Close</button>
+            </div>
+        `;
+    });
+    
+    // Shorter timeout with auto-play attempt
+    loadTimeout = setTimeout(() => {
+        if (!hasStartedPlaying && player.readyState < 2) {
+            // Try to force play even with minimal data
+            player.play().catch(() => {
+                loadingDiv.innerHTML = `
+                    <div style="text-align: center; padding: 20px;">
+                        <div style="color: #ff9500; margin-bottom: 10px;">⚠️ File Loading Slowly</div>
+                        <div style="margin-bottom: 15px;">Click play when ready</div>
+                        <button onclick="closeVideo()" style="background: #0066ff; color: white; border: none; padding: 10px 20px; border-radius: 5px;">Close</button>
+                    </div>
+                `;
+            });
+        }
+    }, 10000);
+    
+    player.addEventListener('loadedmetadata', () => {
+        if (loadTimeout) {
+            clearTimeout(loadTimeout);
+            loadTimeout = null;
+        }
+    });
     
     updateVideoControls();
     
-    // Save progress periodically and auto-play next
+    // Set up progress tracking
     if (currentUser && currentSeries) {
         player.ontimeupdate = () => saveProgress(filename, player.currentTime, player.duration);
         player.onended = () => {
@@ -1323,12 +1077,6 @@ function closeVideo() {
     const modal = document.getElementById('videoModal');
     const player = document.getElementById('videoPlayer');
     
-    // Cancel any ongoing video downloads
-    if (window.currentVideoAbortController) {
-        window.currentVideoAbortController.abort();
-        window.currentVideoAbortController = null;
-    }
-    
     // Save progress before closing
     if (currentUser && currentSeries && player.src) {
         const filename = player.src.split('/').pop().split('?')[0];
@@ -1337,22 +1085,14 @@ function closeVideo() {
         }
     }
     
-    // Aggressive memory cleanup for TV performance
+    // Clean video player
     player.pause();
     player.currentTime = 0;
     player.removeAttribute('src');
     player.removeAttribute('poster');
-    player.load(); // Force reload to clear any cached content
-    
-    // Clear all event listeners
-    const newPlayer = player.cloneNode(true);
-    player.parentNode.replaceChild(newPlayer, player);
+    player.load(); // Clear cached content
     
     modal.style.display = 'none';
-    
-    // Force garbage collection hints
-    if (window.gc) window.gc();
-    if (window.CollectGarbage) window.CollectGarbage();
 }
 
 async function backToSeries() {
@@ -1443,23 +1183,10 @@ function goHome() {
     const player = document.getElementById('videoPlayer');
     const videoModal = document.getElementById('videoModal');
     
-    // Cancel any ongoing video downloads
-    if (window.currentVideoAbortController) {
-        window.currentVideoAbortController.abort();
-        window.currentVideoAbortController = null;
-    }
-    
-    // Always stop video to prevent background playback
+    // Stop video to prevent background playback
     if (player) {
         player.pause();
         player.src = '';
-    }
-    
-    // If video was loading, force close and reset
-    if (videoModal.hasAttribute('data-has-loading-video')) {
-        videoModal.removeAttribute('data-has-loading-video');
-        // Rebuild content to fix navigation
-        setTimeout(() => loadSeries(), 100);
     }
     
     videoModal.style.display = 'none';
