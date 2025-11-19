@@ -1,20 +1,17 @@
-version: '3.8'
-
 services:
   video-host:
-    build: .
+    build: ..
     ports:
       - "3000:3000"
     volumes:
-      - "${VIDEOS_PATH:-./videos}:/app/videos:ro"
+      - "${VIDEOS_PATH:-D:/videos}:/app/videos:ro"
       - ./data:/app/data
+    env_file:
+      - ../.env
     environment:
       - NODE_ENV=production
-      - VIDEOS_PATH=${VIDEOS_PATH}
       - REDIS_HOST=host.docker.internal
-      - REDIS_PORT=6381
-      - REDIS_PASSWORD=plant_en_2025
-      - JWT_SECRET=${JWT_SECRET}
+      - REDIS_PORT=6380
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:

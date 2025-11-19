@@ -23,13 +23,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
-    // Check if we have a valid token
+    // Check if we have a valid token and validate it
     if (authToken) {
         currentUser = JSON.parse(localStorage.getItem('currentUser'));
         if (currentUser) {
-            updateUI();
-            document.querySelector('main').style.display = 'block';
-            loadSeries();
+            // Validate token before proceeding
+            validateTokenAndProceed();
         } else {
             showLoginModal();
         }
@@ -68,6 +67,44 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
+// Validate existing token before using it
+async function validateTokenAndProceed() {
+    try {
+        const response = await fetch('/api/series', { 
+            headers: { 'Authorization': `Bearer ${authToken}` } 
+        });
+        
+        if (response.ok) {
+            // Token is valid
+            updateUI();
+            document.querySelector('main').style.display = 'block';
+            loadSeries();
+        } else if (response.status === 401) {
+            // Token expired or invalid, clear and re-login
+            console.log('Token expired, attempting re-login');
+            authToken = null;
+            currentUser = null;
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('currentUser');
+            
+            const isTV = navigator.userAgent.includes('wv') || 
+                        navigator.userAgent.includes('Android') || 
+                        typeof Android !== 'undefined';
+            
+            if (isTV) {
+                autoLoginTV();
+            } else {
+                showLoginModal();
+            }
+        } else {
+            showLoginModal();
+        }
+    } catch (error) {
+        console.error('Token validation error:', error);
+        showLoginModal();
+    }
+}
+
 function showLoginModal() {
     document.getElementById('authModal').style.display = 'block';
     document.querySelector('main').style.display = 'none';
@@ -75,6 +112,20 @@ function showLoginModal() {
 
 async function autoLoginTV() {
     try {
+        // Check if Android app is handling login
+        if (typeof Android !== 'undefined' && Android.getDeviceId) {
+            // Wait for Android app to complete its login attempt
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            
+            // Check if already logged in by Android app
+            if (authToken && currentUser) {
+                updateUI();
+                document.querySelector('main').style.display = 'block';
+                loadSeries();
+                return;
+            }
+        }
+        
         // Get unique device ID for this TV with fallback
         let deviceId;
         try {
@@ -835,6 +886,7 @@ function playVideo(url, filename, title, videoIndex = null) {
     
     // Unified progressive streaming for all devices
     const videoUrl = `${window.location.origin}${url}`;
+
     const loadingDiv = document.getElementById('videoLoading');
     
     // Detect device type for UI messaging
@@ -854,6 +906,7 @@ function playVideo(url, filename, title, videoIndex = null) {
     }
     
     // Set video source
+
     player.src = videoUrl;
     player.load();
     

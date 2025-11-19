@@ -197,9 +197,11 @@ public class MainActivity extends Activity {
                     "});", null);
                 
                 // Auto-login with stored credentials and apply video optimizations
-                if (url.contains("magnushackhost.win") && !loginAttempted) {
-                    loginAttempted = true;
-                    performAutoLogin(view);
+                if (url.contains("magnushackhost.win")) {
+                    if (!loginAttempted) {
+                        loginAttempted = true;
+                        performAutoLogin(view);
+                    }
                     applyVideoOptimizations(view);
                 }
             }
@@ -358,21 +360,43 @@ public class MainActivity extends Activity {
         String deviceId = android.provider.Settings.Secure.getString(getContentResolver(), android.provider.Settings.Secure.ANDROID_ID);
         String deviceUsername = "TV-" + deviceId.substring(Math.max(0, deviceId.length() - 8));
         
-        String loginScript = "setTimeout(() => {" +
-            "  if (document.getElementById('loginUsername')) {" +
-            "    if ('" + savedUsername + "' && '" + savedPassword + "') {" +
-            "      document.getElementById('loginUsername').value = '" + savedUsername + "';" +
-            "      document.getElementById('loginPassword').value = '" + savedPassword + "';" +
-            "      setTimeout(() => { if (typeof login === 'function') login(); }, 500);" +
-            "    } else {" +
-            "      document.getElementById('loginUsername').value = '" + deviceUsername + "';" +
-            "      document.getElementById('loginPassword').value = '" + defaultTvPassword + "';" +
-            "      setTimeout(() => { if (typeof login === 'function') login(); }, 500);" +
+        // First check if already logged in with valid token
+        String tokenCheckScript = "setTimeout(() => {" +
+            "  if (localStorage.getItem('authToken') && localStorage.getItem('currentUser')) {" +
+            "    fetch('/api/series', { headers: { 'Authorization': 'Bearer ' + localStorage.getItem('authToken') } })" +
+            "      .then(response => {" +
+            "        if (response.ok) {" +
+            "          console.log('Existing token valid, skipping login');" +
+            "          if (typeof updateUI === 'function') updateUI();" +
+            "          document.querySelector('main').style.display = 'block';" +
+            "          if (typeof loadSeries === 'function') loadSeries();" +
+            "          return;" +
+            "        } else {" +
+            "          console.log('Token invalid, proceeding with login');" +
+            "          performLogin();" +
+            "        }" +
+            "      })" +
+            "      .catch(() => performLogin());" +
+            "  } else {" +
+            "    performLogin();" +
+            "  }" +
+            "  " +
+            "  function performLogin() {" +
+            "    if (document.getElementById('loginUsername')) {" +
+            "      if ('" + savedUsername + "' && '" + savedPassword + "') {" +
+            "        document.getElementById('loginUsername').value = '" + savedUsername + "';" +
+            "        document.getElementById('loginPassword').value = '" + savedPassword + "';" +
+            "        setTimeout(() => { if (typeof login === 'function') login(); }, 500);" +
+            "      } else {" +
+            "        document.getElementById('loginUsername').value = '" + deviceUsername + "';" +
+            "        document.getElementById('loginPassword').value = '" + defaultTvPassword + "';" +
+            "        setTimeout(() => { if (typeof login === 'function') login(); }, 500);" +
+            "      }" +
             "    }" +
             "  }" +
             "}, " + loginDelay + ");"; 
         
-        view.evaluateJavascript(loginScript, null);
+        view.evaluateJavascript(tokenCheckScript, null);
     }
     
     private void applyVideoOptimizations(WebView view) {
@@ -432,6 +456,14 @@ public class MainActivity extends Activity {
             editor.clear();
             editor.apply();
             loginAttempted = false;
+            
+            // Clear web storage as well
+            runOnUiThread(() -> {
+                webView.evaluateJavascript(
+                    "localStorage.removeItem('authToken');" +
+                    "localStorage.removeItem('currentUser');" +
+                    "localStorage.removeItem('tvDeviceId');", null);
+            });
         }
     }
 }

@@ -1,19 +1,12 @@
-FROM node:20-alpine
+FROM node:18-alpine
 
 WORKDIR /app
 
-# Copy package files first for better caching
 COPY package*.json ./
 RUN npm install --omit=dev
 
-# Copy source code
-COPY *.js *.html *.css *.md ./
-COPY .dockerignore ./
-COPY public/ ./public/
-
-# Create directories
-RUN mkdir -p /app/videos /app/data
+COPY . .
 
 EXPOSE 3000
 
-CMD ["npm", "start"]
+CMD ["node", "app.js"]

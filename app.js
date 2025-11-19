@@ -7,7 +7,7 @@ const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const { body, validationResult, param } = require('express-validator');
 const crypto = require('crypto');
-const config = require('./config');
+const config = require('./config/config');
 const QRCode = require('qrcode');
 const redisClient = require('./http-redis-client');
 const app = express();
@@ -318,12 +318,21 @@ const auth = async (req, res, next) => {
         if (Date.now() >= decoded.exp * 1000) {
             return res.status(401).json({ error: 'Token expired' });
         }
-        // Update session activity
+        
+        // Validate session if sessionId exists
         if (decoded.sessionId) {
-            const session = await redisClient.getSession(decoded.sessionId);
-            if (session) {
+            try {
+                const session = await redisClient.getSession(decoded.sessionId);
+                if (!session) {
+                    return res.status(401).json({ error: 'Session not found' });
+                }
+                
+                // Update session activity
                 session.lastActivity = new Date();
                 await redisClient.setSession(decoded.sessionId, session);
+            } catch (sessionError) {
+                // Redis session error, but allow request to continue for TV compatibility
+                console.warn('Session validation failed:', sessionError.message);
             }
         }
         
@@ -331,6 +340,9 @@ const auth = async (req, res, next) => {
         req.token = token;
         next();
     } catch (error) {
+        if (error.name === 'TokenExpiredError') {
+            return res.status(401).json({ error: 'Token expired' });
+        }
         res.status(401).json({ error: 'Invalid token' });
     }
 };
@@ -356,10 +368,37 @@ app.use('/videos', (req, res, next) => {
     }
     
     // Check file exists and is within videos directory
-    const fullPath = path.join(videosDir, filePath);
+    let fullPath = path.join(videosDir, filePath);
     
     if (!fullPath.startsWith(videosDir)) {
         return res.status(403).json({ error: 'Access denied' });
+    }
+    
+    // Handle case sensitivity issues with case-insensitive matching
+    const pathParts = filePath.split('/').filter(p => p).map(p => decodeURIComponent(p));
+    let resolvedPath = videosDir;
+    let pathResolved = true;
+    
+    for (const part of pathParts) {
+        if (!fs.existsSync(resolvedPath)) {
+            pathResolved = false;
+            break;
+        }
+        
+        const items = fs.readdirSync(resolvedPath);
+        const matchedItem = items.find(item => item.toLowerCase() === part.toLowerCase());
+        
+        if (matchedItem) {
+            resolvedPath = path.join(resolvedPath, matchedItem);
+        } else {
+            resolvedPath = path.join(resolvedPath, part);
+            pathResolved = false;
+            break;
+        }
+    }
+    
+    if (pathResolved && fs.existsSync(resolvedPath)) {
+        fullPath = resolvedPath;
     }
     
     // Handle video streaming with range requests
@@ -555,14 +594,19 @@ app.post('/api/login',
             { expiresIn: '24h' }
         );
         
-        // Store active session in Redis
-        await redisClient.setSession(sessionId, {
-            userId: user.id,
-            username,
-            token,
-            createdAt: new Date(),
-            lastActivity: new Date()
-        });
+        // Store active session in Redis with error handling
+        try {
+            await redisClient.setSession(sessionId, {
+                userId: user.id,
+                username,
+                token,
+                createdAt: new Date(),
+                lastActivity: new Date()
+            });
+        } catch (sessionError) {
+            console.warn('Failed to store session in Redis:', sessionError.message);
+            // Continue without session storage for TV compatibility
+        }
         
         // Set auth token as cookie for video requests
         res.cookie('authToken', token, {
@@ -954,7 +998,7 @@ app.get('/api/series/*',
             }
             
             const videos = files.filter(f => f.match(/\.(mp4|webm|ogg|avi|mkv)$/i))
-                .sort() // Sort videos alphabetically
+                .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase())) // Case-insensitive sort
                 .map(v => ({
                     filename: v,
                     url: `/videos/${pathParts.map(p => encodeURIComponent(p)).join('/')}/${encodeURIComponent(v)}`,

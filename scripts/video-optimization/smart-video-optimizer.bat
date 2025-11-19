@@ -3,10 +3,28 @@ setlocal enabledelayedexpansion
 echo Smart Video Optimizer - Analyzing and optimizing videos for streaming...
 echo.
 
+REM Check if ffmpeg is available
+ffmpeg -version >nul 2>&1
+if !errorlevel! neq 0 (
+    echo ❌ FFmpeg not found! Please install FFmpeg and add it to PATH.
+    pause
+    exit /b 1
+)
+
 cd /d "D:\videos"
+if !errorlevel! neq 0 (
+    echo ❌ Cannot access videos directory: D:\videos
+    pause
+    exit /b 1
+)
+
+set "processed=0"
+set "optimized=0"
+set "errors=0"
 
 for /r %%f in (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.webm) do (
     if exist "%%f" (
+        set /a "processed+=1"
         set "input=%%f"
         set "needs_optimization=0"
         
@@ -52,38 +70,83 @@ for /r %%f in (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.webm) do (
             echo   → Needs optimization
             set "temp=%%~dpnf_temp.mp4"
             
-            ffmpeg -i "!input!" -c:v libx264 -profile:v baseline -level 3.1 -preset medium -crf 23 -maxrate 4M -bufsize 8M -vf "scale='min(1920,iw)':'min(1080,ih)'" -c:a aac -ac 2 -b:a 128k -movflags +faststart+frag_keyframe+empty_moov -map 0:v:0 -map 0:a:0 -sn "!temp!"
+            REM Create backup before optimization
+            set "backup=%%~dpnf_backup%%~xf"
+            copy "!input!" "!backup!" >nul
+            
+            ffmpeg -i "!input!" -c:v libx264 -profile:v baseline -level 3.1 -preset medium -crf 23 -maxrate 4M -bufsize 8M -vf "scale='min(1920,iw)':'min(1080,ih)'" -c:a aac -ac 2 -b:a 128k -movflags +faststart+frag_keyframe+empty_moov -map 0:v:0 -map 0:a:0 -sn "!temp!" -y
             
             if !errorlevel! equ 0 (
-                del "!input!"
-                ren "!temp!" "%%~nxf"
-                echo   ✓ Optimized and replaced original
-            ) else (
-                echo   ❌ Failed to optimize
-                if exist "!temp!" del "!temp!"
-            )
-        ) else (
-            REM Check if MP4 needs faststart fix (metadata at front)
-            if /i "%%~xf"==".mp4" (
-                echo   → Checking faststart optimization...
-                set "temp=%%~dpnf_faststart.mp4"
-                ffmpeg -i "!input!" -c copy -movflags +faststart "!temp!" 2>nul
-                
+                REM Verify the output file is valid
+                ffprobe -v quiet "!temp!" >nul 2>&1
                 if !errorlevel! equ 0 (
                     del "!input!"
                     ren "!temp!" "%%~nxf"
-                    echo   ✓ Applied faststart optimization
+                    del "!backup!"
+                    echo   ✓ Optimized and replaced original
+                    set /a "optimized+=1"
                 ) else (
-                    if exist "!temp!" del "!temp!"
-                    echo   ✓ Already optimized for streaming
+                    echo   ❌ Output file corrupted, restoring backup
+                    del "!temp!"
+                    move "!backup!" "!input!" >nul
+                    set /a "errors+=1"
                 )
             ) else (
-                echo   ✓ Already optimized for streaming
+                echo   ❌ Failed to optimize, restoring backup
+                if exist "!temp!" del "!temp!"
+                move "!backup!" "!input!" >nul
+                set /a "errors+=1"
+            )
+        ) else (
+            echo   ✓ Codec and quality already optimized
+        )
+        
+        REM Always check and apply faststart for MP4 files
+        if /i "%%~xf"==".mp4" (
+            echo   → Checking faststart optimization...
+            
+            REM Check if moov atom is at the beginning
+            ffprobe -v quiet -show_entries format_tags=major_brand -of csv=p=0 "!input!" >nul 2>&1
+            
+            set "temp=%%~dpnf_faststart.mp4"
+            ffmpeg -i "!input!" -c copy -movflags +faststart "!temp!" -y 2>nul
+            
+            if !errorlevel! equ 0 (
+                REM Check if file size changed (indicates faststart was needed)
+                for %%a in ("!input!") do set "size1=%%~za"
+                for %%a in ("!temp!") do set "size2=%%~za"
+                
+                if !size1! neq !size2! (
+                    REM Verify the output file is valid
+                    ffprobe -v quiet "!temp!" >nul 2>&1
+                    if !errorlevel! equ 0 (
+                        del "!input!"
+                        ren "!temp!" "%%~nxf"
+                        echo   ✓ Applied faststart optimization
+                        set /a "optimized+=1"
+                    ) else (
+                        echo   ❌ Faststart output corrupted
+                        del "!temp!"
+                        set /a "errors+=1"
+                    )
+                ) else (
+                    del "!temp!"
+                    echo   ✓ Already has faststart
+                )
+            ) else (
+                if exist "!temp!" del "!temp!"
+                echo   ⚠ Could not apply faststart
             )
         )
         echo.
     )
 )
 
+echo.
+echo ==========================================
 echo Smart optimization complete!
+echo Files processed: !processed!
+echo Files optimized: !optimized!
+echo Errors: !errors!
+echo ==========================================
 pause
