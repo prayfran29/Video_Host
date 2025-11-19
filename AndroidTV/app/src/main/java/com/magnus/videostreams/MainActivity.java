@@ -15,17 +15,26 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.content.SharedPreferences;
 import android.content.Context;
+import java.io.InputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 public class MainActivity extends Activity {
     private WebView webView;
-    private static final String SITE_URL = "https://magnushackhost.win";
+    private String siteUrl;
     private int retryCount = 0;
-    private static final int MAX_RETRIES = 3;
+    private int maxRetries;
+    private int retryDelayBase;
+    private int periodicRetryInterval;
+    private int loginDelay;
+    private int videoOptimizationDelay;
+    private String defaultTvPassword;
     private Handler retryHandler = new Handler();
     private Runnable periodicRetry;
     private boolean siteLoaded = false;
     private SharedPreferences prefs;
     private boolean loginAttempted = false;
+    private String videoOptimizationScript;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -35,16 +44,40 @@ public class MainActivity extends Activity {
         // Keep screen on during video playback
         getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
+        // Load configuration values
+        loadConfiguration();
+        
         webView = findViewById(R.id.webview);
         prefs = getSharedPreferences("VideoHostAuth", Context.MODE_PRIVATE);
         setupWebView();
         loadSiteWithRetry();
     }
     
+    private void loadConfiguration() {
+        siteUrl = BuildConfig.SITE_URL;
+        maxRetries = getResources().getInteger(R.integer.max_retries);
+        retryDelayBase = getResources().getInteger(R.integer.retry_delay_base);
+        periodicRetryInterval = getResources().getInteger(R.integer.periodic_retry_interval);
+        loginDelay = getResources().getInteger(R.integer.login_delay);
+        videoOptimizationDelay = getResources().getInteger(R.integer.video_optimization_delay);
+        defaultTvPassword = getString(R.string.default_tv_password);
+        
+        // Load video optimization script
+        try {
+            InputStream is = getAssets().open("video_optimization.js");
+            byte[] buffer = new byte[is.available()];
+            is.read(buffer);
+            is.close();
+            videoOptimizationScript = new String(buffer, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            videoOptimizationScript = "console.log('Video optimization script not found');"; 
+        }
+    }
+    
     private void loadSiteWithRetry() {
         retryCount = 0;
         siteLoaded = false;
-        webView.loadUrl(SITE_URL);
+        webView.loadUrl(siteUrl);
     }
     
     private void startPeriodicRetry() {
@@ -52,11 +85,11 @@ public class MainActivity extends Activity {
         periodicRetry = () -> {
             if (!siteLoaded) {
                 retryCount = 0;
-                webView.loadUrl(SITE_URL);
-                retryHandler.postDelayed(periodicRetry, 60000); // 1 minute
+                webView.loadUrl(siteUrl);
+                retryHandler.postDelayed(periodicRetry, periodicRetryInterval);
             }
         };
-        retryHandler.postDelayed(periodicRetry, 60000);
+        retryHandler.postDelayed(periodicRetry, periodicRetryInterval);
     }
     
     private void stopPeriodicRetry() {
@@ -91,11 +124,10 @@ public class MainActivity extends Activity {
         WebSettings webSettings = webView.getSettings();
         webSettings.setJavaScriptEnabled(true);
         webSettings.setDomStorageEnabled(true);
-        webSettings.setAllowFileAccess(true);
+        webSettings.setAllowFileAccess(false); // Security: Disable file access
         webSettings.setMediaPlaybackRequiresUserGesture(false);
         webSettings.setAllowContentAccess(true);
-        webSettings.setAllowFileAccessFromFileURLs(true);
-        webSettings.setAllowUniversalAccessFromFileURLs(true);
+        // Security: Remove dangerous file access permissions
         webSettings.setCacheMode(WebSettings.LOAD_CACHE_ELSE_NETWORK);
         
         // Image loading settings for TV
@@ -110,15 +142,13 @@ public class MainActivity extends Activity {
         webSettings.setGeolocationEnabled(false);
         webSettings.setSaveFormData(false);
         webSettings.setSavePassword(false);
-        webSettings.setRenderPriority(WebSettings.RenderPriority.HIGH);
         
-        // Video performance optimizations
-        webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        webSettings.setPluginState(WebSettings.PluginState.ON);
+        // Security: Only allow HTTPS mixed content for trusted domains
+        webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
         
-        // Enable JavaScript debugging for QR login
+        // Enable debugging only in debug builds
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT) {
-            WebView.setWebContentsDebuggingEnabled(true);
+            WebView.setWebContentsDebuggingEnabled(BuildConfig.ENABLE_WEBVIEW_DEBUG);
         }
         
         // Add JavaScript interface for app control
@@ -127,12 +157,12 @@ public class MainActivity extends Activity {
         // Clear cache but keep important data
         webView.clearCache(false);
         
-        // Use software rendering for better TV compatibility
-        webView.setLayerType(WebView.LAYER_TYPE_SOFTWARE, null);
-        
-        // Enable localStorage and sessionStorage for QR login
-        webSettings.setDomStorageEnabled(true);
-        webSettings.setDatabaseEnabled(true);
+        // Use hardware acceleration when available, fallback to software
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.HONEYCOMB) {
+            webView.setLayerType(WebView.LAYER_TYPE_HARDWARE, null);
+        } else {
+            webView.setLayerType(WebView.LAYER_TYPE_SOFTWARE, null);
+        }
         
         // Ensure cookies work for authentication
         android.webkit.CookieManager cookieManager = android.webkit.CookieManager.getInstance();
@@ -166,35 +196,11 @@ public class MainActivity extends Activity {
                     "  }" +
                     "});", null);
                 
-                // Auto-login with stored credentials and force video sizing
+                // Auto-login with stored credentials and apply video optimizations
                 if (url.contains("magnushackhost.win") && !loginAttempted) {
                     loginAttempted = true;
-                    String savedUsername = prefs.getString("username", "");
-                    String savedPassword = prefs.getString("password", "");
-                    
-                    String deviceId = android.provider.Settings.Secure.getString(getContentResolver(), android.provider.Settings.Secure.ANDROID_ID);
-                    String deviceUsername = "TV-" + deviceId.substring(Math.max(0, deviceId.length() - 8));
-                    android.util.Log.d("VideoHost", "Device ID: " + deviceId);
-                    android.util.Log.d("VideoHost", "TV Username: " + deviceUsername);
-                    
-                    view.evaluateJavascript(
-                        "setTimeout(() => {" +
-                        "  if (document.getElementById('loginUsername')) {" +
-                        "    if ('" + savedUsername + "' && '" + savedPassword + "') {" +
-                        "      document.getElementById('loginUsername').value = '" + savedUsername + "';" +
-                        "      document.getElementById('loginPassword').value = '" + savedPassword + "';" +
-                        "      setTimeout(() => { if (typeof login === 'function') login(); }, 500);" +
-                        "    } else {" +
-                        "      document.getElementById('loginUsername').value = '" + deviceUsername + "';" +
-                        "      document.getElementById('loginPassword').value = 'TVPass123!';" +
-                        "      setTimeout(() => { if (typeof login === 'function') login(); }, 500);" +
-                        "    }" +
-                        "  }" +
-                        "  var style = document.createElement('style');" +
-                        "  style.textContent = '#videoPlayer { width: 100% !important; height: 400px !important; background: black !important; } .video-container { height: 400px !important; background: black !important; } #videoLoading { display: none !important; }';" +
-                        "  document.head.appendChild(style);" +
-                        "  setTimeout(() => { var video = document.getElementById('videoPlayer'); if(video) { video.style.visibility = 'visible'; video.style.opacity = '1'; video.webkitEnterFullscreen = video.webkitEnterFullscreen || function(){}; } }, 3000);" +
-                        "}, 2000);", null);
+                    performAutoLogin(view);
+                    applyVideoOptimizations(view);
                 }
             }
             
@@ -203,22 +209,22 @@ public class MainActivity extends Activity {
                 super.onReceivedError(view, errorCode, description, failingUrl);
                 
                 // Retry logic for main site and video files
-                if (retryCount < MAX_RETRIES) {
+                if (retryCount < maxRetries) {
                     retryCount++;
                     
-                    // Exponential backoff: 2s, 4s, 8s
-                    long delay = 2000 * (1L << (retryCount - 1));
+                    // Exponential backoff
+                    long delay = retryDelayBase * (1L << (retryCount - 1));
                     
                     retryHandler.postDelayed(() -> {
-                        if (failingUrl.equals(SITE_URL) || failingUrl.contains("magnushackhost.win")) {
+                        if (failingUrl.equals(siteUrl) || failingUrl.contains("magnushackhost.win")) {
                             // Retry main site
-                            view.loadUrl(SITE_URL);
+                            view.loadUrl(siteUrl);
                         } else {
                             // Retry current page
                             view.reload();
                         }
                     }, delay);
-                } else if (failingUrl.equals(SITE_URL) || failingUrl.contains("magnushackhost.win")) {
+                } else if (failingUrl.equals(siteUrl) || failingUrl.contains("magnushackhost.win")) {
                     // Start periodic retry for main site
                     siteLoaded = false;
                     startPeriodicRetry();
@@ -249,17 +255,9 @@ public class MainActivity extends Activity {
             @Override
             public void onProgressChanged(WebView view, int newProgress) {
                 super.onProgressChanged(view, newProgress);
-                // Optimize video elements when page loads
+                // Apply video optimizations when page loads
                 if (newProgress > 80) {
-                    view.evaluateJavascript(
-                        "var videos = document.querySelectorAll('video'); " +
-                        "for(var i=0; i<videos.length; i++) { " +
-                        "videos[i].setAttribute('preload', 'metadata'); " +
-                        "videos[i].setAttribute('playsinline', 'true'); " +
-                        "videos[i].style.width = '100%'; " +
-                        "videos[i].style.height = '100%'; " +
-                        "videos[i].style.objectFit = 'contain'; }" +
-                        "console.log('TV app loaded, videos optimized');", null);
+                    view.evaluateJavascript(videoOptimizationScript, null);
                 }
             }
             private View customView;
@@ -351,6 +349,35 @@ public class MainActivity extends Activity {
                 return true;
         }
         return super.onKeyDown(keyCode, event);
+    }
+    
+    private void performAutoLogin(WebView view) {
+        String savedUsername = prefs.getString("username", "");
+        String savedPassword = prefs.getString("password", "");
+        
+        String deviceId = android.provider.Settings.Secure.getString(getContentResolver(), android.provider.Settings.Secure.ANDROID_ID);
+        String deviceUsername = "TV-" + deviceId.substring(Math.max(0, deviceId.length() - 8));
+        
+        String loginScript = "setTimeout(() => {" +
+            "  if (document.getElementById('loginUsername')) {" +
+            "    if ('" + savedUsername + "' && '" + savedPassword + "') {" +
+            "      document.getElementById('loginUsername').value = '" + savedUsername + "';" +
+            "      document.getElementById('loginPassword').value = '" + savedPassword + "';" +
+            "      setTimeout(() => { if (typeof login === 'function') login(); }, 500);" +
+            "    } else {" +
+            "      document.getElementById('loginUsername').value = '" + deviceUsername + "';" +
+            "      document.getElementById('loginPassword').value = '" + defaultTvPassword + "';" +
+            "      setTimeout(() => { if (typeof login === 'function') login(); }, 500);" +
+            "    }" +
+            "  }" +
+            "}, " + loginDelay + ");"; 
+        
+        view.evaluateJavascript(loginScript, null);
+    }
+    
+    private void applyVideoOptimizations(WebView view) {
+        String optimizationScript = "setTimeout(() => {" + videoOptimizationScript + "}, " + videoOptimizationDelay + ");"; 
+        view.evaluateJavascript(optimizationScript, null);
     }
     
     public class WebAppInterface {

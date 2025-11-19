@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="site_url">https://magnushackhost.win</string>
+    <string name="default_tv_password">TVPass123!</string>
+    <integer name="max_retries">3</integer>
+    <integer name="retry_delay_base">2000</integer>
+    <integer name="periodic_retry_interval">60000</integer>
+    <integer name="login_delay">2000</integer>
+    <integer name="video_optimization_delay">3000</integer>
+</resources>
