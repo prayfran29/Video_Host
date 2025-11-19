@@ -74,16 +74,18 @@ for /r %%f in (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.webm) do (
             set "backup=%%~dpnf_backup%%~xf"
             copy "!input!" "!backup!" >nul
             
-            ffmpeg -i "!input!" -c:v libx264 -profile:v baseline -level 3.1 -preset medium -crf 23 -maxrate 4M -bufsize 8M -vf "scale='min(1920,iw)':'min(1080,ih)'" -c:a aac -ac 2 -b:a 128k -movflags +faststart+frag_keyframe+empty_moov -map 0:v:0 -map 0:a:0 -sn "!temp!" -y
+            ffmpeg -i "!input!" -c:v libx264 -profile:v main -level 4.0 -preset medium -crf 23 -maxrate 4M -bufsize 8M -vf "scale='min(1920,iw)':'min(1080,ih)'" -c:a aac -ac 2 -b:a 128k -movflags +faststart -map 0:v:0 -map 0:a:0 -sn "!temp!" -y
             
             if !errorlevel! equ 0 (
                 REM Verify the output file is valid
                 ffprobe -v quiet "!temp!" >nul 2>&1
                 if !errorlevel! equ 0 (
                     del "!input!"
-                    ren "!temp!" "%%~nxf"
+                    REM Rename to .mp4 extension
+                    set "finalname=%%~dpnf.mp4"
+                    ren "!temp!" "%%~nf.mp4"
                     del "!backup!"
-                    echo   ✓ Optimized and replaced original
+                    echo   ✓ Optimized and converted to MP4
                     set /a "optimized+=1"
                 ) else (
                     echo   ❌ Output file corrupted, restoring backup
