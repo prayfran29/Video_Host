@@ -35,6 +35,9 @@ public class MainActivity extends Activity {
     private SharedPreferences prefs;
     private boolean loginAttempted = false;
     private String videoOptimizationScript;
+    private Handler inactivityHandler = new Handler();
+    private Runnable sleepRunnable;
+    private static final int INACTIVITY_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -51,6 +54,7 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences("VideoHostAuth", Context.MODE_PRIVATE);
         setupWebView();
         loadSiteWithRetry();
+        startInactivityTimer();
     }
     
     private void loadConfiguration() {
@@ -102,6 +106,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         super.onDestroy();
         stopPeriodicRetry();
+        stopInactivityTimer();
     }
     
     @Override
@@ -110,6 +115,7 @@ public class MainActivity extends Activity {
         if (webView != null) {
             webView.onPause();
         }
+        stopInactivityTimer();
     }
     
     @Override
@@ -118,6 +124,7 @@ public class MainActivity extends Activity {
         if (webView != null) {
             webView.onResume();
         }
+        startInactivityTimer();
     }
 
     private void setupWebView() {
@@ -321,6 +328,9 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        // Reset inactivity timer on any key press
+        resetInactivityTimer();
+        
         // Handle D-pad navigation
         switch (keyCode) {
             case KeyEvent.KEYCODE_DPAD_LEFT:
@@ -465,5 +475,24 @@ public class MainActivity extends Activity {
                     "localStorage.removeItem('tvDeviceId');", null);
             });
         }
+    }
+    
+    private void startInactivityTimer() {
+        stopInactivityTimer();
+        sleepRunnable = () -> {
+            // Put TV to sleep by finishing the activity
+            finish();
+        };
+        inactivityHandler.postDelayed(sleepRunnable, INACTIVITY_TIMEOUT);
+    }
+    
+    private void stopInactivityTimer() {
+        if (sleepRunnable != null) {
+            inactivityHandler.removeCallbacks(sleepRunnable);
+        }
+    }
+    
+    private void resetInactivityTimer() {
+        startInactivityTimer();
     }
 }

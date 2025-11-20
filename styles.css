@@ -177,12 +177,12 @@ body {
 }
 
 .section {
-    margin-bottom: 3rem;
+    margin-bottom: 2rem;
 }
 
 .section h3 {
-    font-size: 1.8rem;
-    margin-bottom: 1.5rem;
+    font-size: 1.4rem;
+    margin-bottom: 1rem;
     color: #e0e0e0;
 }
 
@@ -217,7 +217,7 @@ body {
 
 .genre-swimlane .content-card,
 .continue-watching-swimlane .content-card {
-    min-width: 280px;
+    min-width: 200px;
     flex-shrink: 0;
 }
 
@@ -253,8 +253,8 @@ body {
     outline: none;
     position: relative;
     will-change: transform;
-    width: 280px;
-    height: 320px;
+    width: 200px;
+    height: 240px;
 }
 
 .content-card:hover,
@@ -287,7 +287,7 @@ body {
 
 .card-image {
     width: 100%;
-    height: 200px;
+    height: 140px;
     background: linear-gradient(45deg, #4a90e2, #357abd);
     position: relative;
     overflow: hidden;
@@ -300,11 +300,12 @@ body {
     object-position: center;
 }
 
-/* Hide broken images on TV */
+/* Show broken images for debugging */
 .card-image img[src=""],
 .card-image img:not([src]),
 .card-image img[src="null"] {
-    display: none;
+    border: 2px solid red;
+    background: #333;
 }
 
 .card-image::after {

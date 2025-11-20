@@ -1,0 +1,219 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Samsung Sharp Sans', Arial, sans-serif;
+    background: #0b0b0b;
+    color: #fff;
+    overflow: hidden;
+}
+
+#main {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+header {
+    background: #1a1a1a;
+    padding: 20px;
+    border-bottom: 2px solid #0066ff;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+header h1 {
+    color: #0066ff;
+    font-size: 2rem;
+}
+
+#connectionStatus {
+    color: #999;
+    font-size: 1rem;
+}
+
+main {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.screen {
+    width: 100%;
+    height: 100%;
+}
+
+/* Login Screen */
+#loginScreen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+#qrContainer {
+    margin: 40px 0;
+}
+
+#qrCode {
+    width: 300px;
+    height: 300px;
+    border: 4px solid #0066ff;
+    border-radius: 8px;
+    background: #fff;
+    padding: 10px;
+}
+
+#manualLogin {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    width: 400px;
+    margin: 20px 0;
+}
+
+#manualLogin input {
+    padding: 15px;
+    background: #333;
+    border: 1px solid #555;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 1.2rem;
+}
+
+button {
+    padding: 15px 30px;
+    background: #0066ff;
+    border: none;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 1.2rem;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+button:hover,
+button:focus {
+    background: #0052cc;
+    outline: 3px solid #fff;
+    outline-offset: 2px;
+}
+
+/* Home Screen */
+.genre-section {
+    margin-bottom: 40px;
+}
+
+.genre-title {
+    font-size: 1.5rem;
+    margin-bottom: 20px;
+    color: #0066ff;
+}
+
+.series-row {
+    display: flex;
+    gap: 20px;
+    overflow-x: auto;
+    padding-bottom: 10px;
+}
+
+.series-card {
+    min-width: 200px;
+    height: 280px;
+    background: #333;
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.series-card:hover,
+.series-card:focus {
+    transform: scale(1.05);
+    box-shadow: 0 0 20px rgba(0, 102, 255, 0.8);
+    outline: 3px solid #0066ff;
+    outline-offset: 2px;
+}
+
+.series-image {
+    width: 100%;
+    height: 200px;
+    background: linear-gradient(45deg, #4a90e2, #357abd);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 3rem;
+    color: #0066ff;
+}
+
+.series-info {
+    padding: 15px;
+}
+
+.series-title {
+    font-size: 1rem;
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+.series-count {
+    color: #999;
+    font-size: 0.9rem;
+}
+
+/* Series Screen */
+#videoList {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.video-item {
+    background: #333;
+    padding: 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.video-item:hover,
+.video-item:focus {
+    background: #0066ff;
+    outline: 3px solid #fff;
+    outline-offset: 2px;
+}
+
+.video-title {
+    font-size: 1.1rem;
+    font-weight: bold;
+}
+
+/* TV Remote Navigation */
+.focused {
+    outline: 4px solid #0066ff !important;
+    outline-offset: 4px !important;
+    box-shadow: 0 0 20px rgba(0, 102, 255, 0.8) !important;
+    transform: scale(1.05) !important;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #333;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #0066ff;
+    border-radius: 4px;
+}

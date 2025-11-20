@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Magnus Video Streams</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #0b0b0b; color: #fff; overflow: hidden; }
+        #webview { width: 100vw; height: 100vh; border: none; }
+        #loading { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; z-index: 9999; }
+        .spinner { border: 3px solid #333; border-top: 3px solid #0066ff; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 1rem; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <div class="spinner"></div>
+        <p>Loading Magnus Video Streams...</p>
+    </div>
+    <iframe id="webview" src="http://magnushackhost.win" style="display:none;"></iframe>
+    
+    <script src="js/tizen-tv.js"></script>
+    <script src="js/webview-app.js"></script>
+</body>
+</html>

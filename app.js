@@ -225,68 +225,52 @@ function scanVideoStructure() {
             return;
         }
         
-        const rootItems = fs.readdirSync(videosDir, { withFileTypes: true })
-            .filter(dirent => dirent.isDirectory() && dirent.name !== 'Adult');
-        
-        for (const item of rootItems) {
-            if (!validatePath(item.name)) continue;
+        function scanDirectory(dirPath, parentGenre = null, level = 0) {
+            if (level > 3) return; // Prevent infinite recursion
             
-            const itemPath = path.join(videosDir, item.name);
-            if (!fs.existsSync(itemPath)) continue;
+            const items = fs.readdirSync(dirPath, { withFileTypes: true })
+                .filter(dirent => dirent.isDirectory() && dirent.name !== 'Adult');
             
-            const files = fs.readdirSync(itemPath);
-            const videos = files.filter(f => f.match(/\.(mp4|webm|ogg|avi|mkv)$/i));
-            
-            if (videos.length > 0) {
-                const thumbnail = files.find(f => f.toLowerCase() === 'img' || f.startsWith('img.'));
-                const seriesData = {
-                    id: item.name,
-                    title: item.name,
-                    genre: 'Root',
-                    thumbnail: thumbnail ? `/videos/${encodeURIComponent(item.name)}/${encodeURIComponent(thumbnail)}` : null,
-                    videoCount: videos.length,
-                    videos: videos.map(v => ({
-                        filename: v,
-                        url: `/videos/${encodeURIComponent(item.name)}/${encodeURIComponent(v)}`
-                    }))
-                };
-                series.push(seriesData);
-                if (!genres['Other']) genres['Other'] = [];
-                genres['Other'].push(seriesData);
-            } else {
-                const subItems = fs.readdirSync(itemPath, { withFileTypes: true })
-                    .filter(dirent => dirent.isDirectory());
+            for (const item of items) {
+                if (!validatePath(item.name)) continue;
                 
-                if (!genres[item.name]) genres[item.name] = [];
+                const itemPath = path.join(dirPath, item.name);
+                if (!fs.existsSync(itemPath)) continue;
                 
-                for (const subItem of subItems) {
-                    if (!validatePath(subItem.name)) continue;
+                const files = fs.readdirSync(itemPath);
+                const videos = files.filter(f => f.match(/\.(mp4|webm|ogg|avi|mkv)$/i));
+                
+                if (videos.length > 0) {
+                    // This directory contains videos - it's a series
+                    const thumbnail = files.find(f => f.toLowerCase() === 'img' || f.startsWith('img.'));
+                    const relativePath = path.relative(videosDir, itemPath).replace(/\\/g, '/');
+                    const pathParts = relativePath.split('/');
+                    const genre = pathParts.length > 1 ? `${pathParts[0]}/${pathParts[1]}` : pathParts[0] || 'Other';
                     
-                    const subPath = path.join(itemPath, subItem.name);
-                    if (!fs.existsSync(subPath)) continue;
+                    const seriesData = {
+                        id: relativePath,
+                        title: item.name,
+                        genre: genre,
+                        thumbnail: thumbnail ? `/videos/${pathParts.map(p => encodeURIComponent(p)).join('/')}/${encodeURIComponent(thumbnail)}` : null,
+                        videoCount: videos.length,
+                        videos: videos.map(v => ({
+                            filename: v,
+                            url: `/videos/${pathParts.map(p => encodeURIComponent(p)).join('/')}/${encodeURIComponent(v)}`
+                        }))
+                    };
                     
-                    const subFiles = fs.readdirSync(subPath);
-                    const subVideos = subFiles.filter(f => f.match(/\.(mp4|webm|ogg|avi|mkv)$/i));
-                    
-                    if (subVideos.length > 0) {
-                        const thumbnail = subFiles.find(f => f.toLowerCase() === 'img' || f.startsWith('img.'));
-                        const seriesData = {
-                            id: `${item.name}/${subItem.name}`,
-                            title: subItem.name,
-                            genre: item.name,
-                            thumbnail: thumbnail ? `/videos/${encodeURIComponent(item.name)}/${encodeURIComponent(subItem.name)}/${encodeURIComponent(thumbnail)}` : null,
-                            videoCount: subVideos.length,
-                            videos: subVideos.map(v => ({
-                                filename: v,
-                                url: `/videos/${encodeURIComponent(item.name)}/${encodeURIComponent(subItem.name)}/${encodeURIComponent(v)}`
-                            }))
-                        };
-                        series.push(seriesData);
-                        genres[item.name].push(seriesData);
-                    }
+                    series.push(seriesData);
+                    if (!genres[genre]) genres[genre] = [];
+                    genres[genre].push(seriesData);
+                } else {
+                    // This directory contains subdirectories - recurse
+                    const currentGenre = parentGenre ? `${parentGenre}/${item.name}` : item.name;
+                    scanDirectory(itemPath, currentGenre, level + 1);
                 }
             }
         }
+        
+        scanDirectory(videosDir);
         
         videoCache = { series, genres, lastScan: Date.now() };
         console.log(`✓ Scanned ${series.length} series in ${Object.keys(genres).length} genres`);

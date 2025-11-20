@@ -12,6 +12,18 @@ def auto_download_posters():
             series_name = os.path.basename(root)
             img_path = os.path.join(root, "img.jpg")
             
+            # Check if Paint.net image exists or any custom image files (skip these)
+            pdn_files = [f for f in files if f.lower().startswith('img.') and f.lower().endswith('.pdn')]
+            custom_images = [f for f in files if f.lower().startswith('img.') and f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
+            
+            if pdn_files:
+                print(f"Paint.net image found, skipping: {series_name}")
+                continue
+                
+            if custom_images and not any(f.lower() == 'img.jpg' for f in custom_images):
+                print(f"Custom image found, skipping: {series_name}")
+                continue
+            
             # Check if no image exists OR if it's a placeholder
             needs_poster = False
             
