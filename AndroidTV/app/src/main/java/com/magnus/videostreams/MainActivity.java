@@ -1,4 +1,4 @@
-package com.magnus.videostreams;
+package com.majin.videostreams;
 
 import android.app.Activity;
 import android.os.Bundle;
@@ -215,7 +215,7 @@ public class MainActivity extends Activity {
                     "});", null);
                 
                 // Auto-login with stored credentials and apply video optimizations
-                if (url.contains("magnushackhost.win")) {
+                if (url.contains("majinhackhost.win")) {
                     if (!loginAttempted) {
                         loginAttempted = true;
                         performAutoLogin(view);
@@ -236,7 +236,7 @@ public class MainActivity extends Activity {
                     long delay = retryDelayBase * (1L << (retryCount - 1));
                     
                     retryHandler.postDelayed(() -> {
-                        if (failingUrl.equals(siteUrl) || failingUrl.contains("magnushackhost.win")) {
+                        if (failingUrl.equals(siteUrl) || failingUrl.contains("majinhackhost.win")) {
                             // Retry main site
                             view.loadUrl(siteUrl);
                         } else {
@@ -244,7 +244,7 @@ public class MainActivity extends Activity {
                             view.reload();
                         }
                     }, delay);
-                } else if (failingUrl.equals(siteUrl) || failingUrl.contains("magnushackhost.win")) {
+                } else if (failingUrl.equals(siteUrl) || failingUrl.contains("majinhackhost.win")) {
                     // Start periodic retry for main site
                     siteLoaded = false;
                     startPeriodicRetry();

@@ -1,4 +1,4 @@
-# Video Host - Streaming Platform
+# Majin Video Streams - Streaming Platform
 
 A comprehensive video hosting and streaming platform with TV compatibility and progressive streaming support.
 

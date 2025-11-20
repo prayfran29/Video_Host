@@ -947,11 +947,69 @@ function playVideo(url, filename, title, videoIndex = null) {
     player.addEventListener('loadedmetadata', () => {
         console.log('Progressive: Video metadata loaded');
         showReady();
+        
+        // Auto-fullscreen for TV devices
+        if (isTV) {
+            modal.style.display = 'block';
+            modal.style.visibility = 'hidden';
+            let fullscreenAttempted = false;
+            
+            const tryFullscreen = () => {
+                if (player.readyState >= 2 && !fullscreenAttempted) {
+                    fullscreenAttempted = true;
+                    setTimeout(() => {
+                        hideTVLoadingOverlay();
+                        enableFullscreenSupport(player);
+                        
+                        setTimeout(() => {
+                            hideTVLoadingOverlay();
+                            
+                            // Optimize modal for TV viewing
+                            modal.style.cssText += `
+                                position: fixed !important;
+                                top: 0 !important;
+                                left: 0 !important;
+                                width: 100vw !important;
+                                height: 100vh !important;
+                                background: #000 !important;
+                                z-index: 9999 !important;
+                            `;
+                            
+                            // Hide unnecessary elements for TV
+                            const videoContent = modal.querySelector('.video-content');
+                            if (videoContent) {
+                                videoContent.style.cssText += `
+                                    width: 100% !important;
+                                    height: 100% !important;
+                                    max-width: none !important;
+                                    margin: 0 !important;
+                                    padding: 0 !important;
+                                `;
+                            }
+                            
+                            player.style.cssText += `
+                                width: 100% !important;
+                                height: 100% !important;
+                                object-fit: contain !important;
+                            `;
+                            
+                            modal.style.visibility = 'visible';
+                            player.play().catch(() => {});
+                        }, 1000);
+                    }, 3000);
+                } else if (!fullscreenAttempted) {
+                    setTimeout(tryFullscreen, 200);
+                }
+            };
+            tryFullscreen();
+        }
     });
     
     player.addEventListener('canplay', () => {
         console.log('Progressive: Video ready to play');
         showReady();
+        
+
     });
     
     player.addEventListener('play', () => {
@@ -1015,7 +1073,13 @@ function playVideo(url, filename, title, videoIndex = null) {
         player.onended = () => playNextVideo();
     }
     
-    modal.style.display = 'block';
+    // For TV: show loading overlay, for others show modal
+    if (isTV) {
+        modal.style.display = 'none';
+        showTVLoadingOverlay(title);
+    } else {
+        modal.style.display = 'block';
+    }
     document.getElementById('seriesModal').style.display = 'none';
     
     } catch (error) {
@@ -1039,14 +1103,13 @@ function enableFullscreenSupport(player) {
         existingBtn.remove();
     }
     
-    if (navigator.userAgent.includes('wv')) {
-        const fullscreenBtn = document.createElement('button');
-        fullscreenBtn.id = 'fullscreenBtn';
-        fullscreenBtn.textContent = '⛶ Fullscreen';
-        fullscreenBtn.tabIndex = 0;
-        fullscreenBtn.onclick = () => toggleFullscreen(player);
-        controlsDiv.insertBefore(fullscreenBtn, controlsDiv.firstChild);
-    }
+    const fullscreenBtn = document.createElement('button');
+    fullscreenBtn.id = 'fullscreenBtn';
+    fullscreenBtn.textContent = '⛶ Fullscreen';
+    fullscreenBtn.tabIndex = 0;
+    fullscreenBtn.onclick = () => toggleFullscreen(player);
+    controlsDiv.insertBefore(fullscreenBtn, controlsDiv.firstChild);
+    // Debug disabled
     
     // Handle fullscreen changes
     document.onfullscreenchange = document.onwebkitfullscreenchange = document.onmozfullscreenchange = document.onmsfullscreenchange = () => {
@@ -1054,8 +1117,12 @@ function enableFullscreenSupport(player) {
         const btn = document.getElementById('fullscreenBtn');
         if (btn) {
             btn.textContent = isFullscreen ? '⛶ Exit Fullscreen' : '⛶ Fullscreen';
-            // Re-enable button functionality
             btn.onclick = () => toggleFullscreen(player);
+        }
+        
+        const isTV = navigator.userAgent.includes('wv') || navigator.userAgent.includes('Android TV');
+        if (isTV && !isFullscreen) {
+            goHome();
         }
     };
 }
@@ -1426,15 +1493,20 @@ document.addEventListener('keydown', (event) => {
             case 'Escape':
             case 'Backspace':
                 event.preventDefault();
-                // Exit fullscreen first if in fullscreen mode
                 const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+                const isTV = navigator.userAgent.includes('wv') || navigator.userAgent.includes('Android TV');
+                
                 if (isFullscreen) {
                     if (document.exitFullscreen) document.exitFullscreen();
                     else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
                     else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
                     else if (document.msExitFullscreen) document.msExitFullscreen();
                 } else {
-                    closeVideo();
+                    if (isTV) {
+                        goHome();
+                    } else {
+                        closeVideo();
+                    }
                 }
                 break;
             case 'f':
@@ -1619,6 +1691,151 @@ async function loadVideoDescription(title) {
         descriptionDiv.innerHTML = `<p>${data.description}</p>`;
     } catch (error) {
         descriptionDiv.innerHTML = '';
+    }
+}
+
+// TV Loading Overlay Functions
+function showTVLoadingOverlay(title) {
+    const overlay = document.createElement('div');
+    overlay.id = 'tvLoadingOverlay';
+    overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: #000;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 10000;
+        color: white;
+        font-family: Arial, sans-serif;
+    `;
+    
+    overlay.innerHTML = `
+        <div style="font-size: 48px; margin-bottom: 30px;">📺</div>
+        <div style="font-size: 24px; margin-bottom: 20px;">Loading Video</div>
+        <div style="font-size: 18px; color: #0066ff; margin-bottom: 30px;">${title}</div>
+        <div style="width: 60px; height: 60px; border: 4px solid #333; border-top: 4px solid #0066ff; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+        <style>
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+        </style>
+    `;
+    
+    document.body.appendChild(overlay);
+}
+
+function hideTVLoadingOverlay() {
+    const overlay = document.getElementById('tvLoadingOverlay');
+    if (overlay) {
+        overlay.remove();
+    }
+}
+
+function showTVBlackScreen() {
+    const blackScreen = document.createElement('div');
+    blackScreen.id = 'tvBlackScreen';
+    blackScreen.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: #000;
+        z-index: 9999;
+    `;
+    document.body.appendChild(blackScreen);
+}
+
+function hideTVBlackScreen() {
+    const blackScreen = document.getElementById('tvBlackScreen');
+    if (blackScreen) {
+        blackScreen.remove();
+    }
+}
+
+function showTVDebug(message) {
+    // Debug disabled
+}
+
+function showTVFullscreenControls() {
+    const controls = document.createElement('div');
+    controls.id = 'tvFullscreenControls';
+    controls.style.cssText = `
+        position: fixed;
+        bottom: 50px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 20px;
+        z-index: 10001;
+        opacity: 0;
+        transition: opacity 0.3s;
+    `;
+    
+    const buttons = [
+        { text: '⏮ Previous', action: 'playPreviousVideo()', id: 'tvPrevBtn' },
+        { text: 'Next ⏭', action: 'playNextVideo()', id: 'tvNextBtn' }
+    ];
+    
+    buttons.forEach(btn => {
+        const button = document.createElement('button');
+        button.textContent = btn.text;
+        button.onclick = () => eval(btn.action);
+        if (btn.id) button.id = btn.id;
+        button.style.cssText = `
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            border: 2px solid #0066ff;
+            padding: 15px 25px;
+            border-radius: 8px;
+            font-size: 18px;
+            cursor: pointer;
+            transition: all 0.3s;
+        `;
+        button.onmouseover = () => button.style.background = 'rgba(0, 102, 255, 0.8)';
+        button.onmouseout = () => button.style.background = 'rgba(0, 0, 0, 0.8)';
+        controls.appendChild(button);
+    });
+    
+    document.body.appendChild(controls);
+    
+    // Show controls on mouse move or key press
+    let hideTimeout;
+    const showControls = () => {
+        controls.style.opacity = '1';
+        clearTimeout(hideTimeout);
+        hideTimeout = setTimeout(() => {
+            controls.style.opacity = '0';
+        }, 3000);
+    };
+    
+    document.addEventListener('mousemove', showControls);
+    document.addEventListener('keydown', showControls);
+    
+    // Update button visibility
+    updateTVControlsVisibility();
+}
+
+function hideTVFullscreenControls() {
+    const controls = document.getElementById('tvFullscreenControls');
+    if (controls) {
+        controls.remove();
+    }
+}
+
+function updateTVControlsVisibility() {
+    const prevBtn = document.getElementById('tvPrevBtn');
+    const nextBtn = document.getElementById('tvNextBtn');
+    
+    if (prevBtn && nextBtn && currentSeries) {
+        prevBtn.style.display = currentVideoIndex > 0 ? 'block' : 'none';
+        nextBtn.style.display = currentVideoIndex < currentSeries.videos.length - 1 ? 'block' : 'none';
     }
 }
 
