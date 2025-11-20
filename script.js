@@ -3,6 +3,8 @@ let authToken = localStorage.getItem('authToken');
 let watchProgress = {};
 let currentSeries = null;
 let currentVideoIndex = 0;
+let tvPlaybackActive = false;
+let tvPlaybackStarted = false;
 
 // Clean up any existing state on page load
 window.addEventListener('beforeunload', () => {
@@ -866,6 +868,10 @@ function playVideo(url, filename, title, videoIndex = null) {
         currentVideoIndex = videoIndex;
     }
     
+    // Detect device type
+    const userAgent = navigator.userAgent || '';
+    const isTV = /Smart-TV|Tizen|WebOS|Android TV|BRAVIA|Samsung|LG webOS|wv/i.test(userAgent);
+    
     // Reset player and show loading - remove any poster to prevent broken icon
     player.src = '';
     player.removeAttribute('poster');
@@ -896,10 +902,6 @@ function playVideo(url, filename, title, videoIndex = null) {
 
     const loadingDiv = document.getElementById('videoLoading');
     
-    // Detect device type for UI messaging
-    const userAgent = navigator.userAgent || '';
-    const isTV = /Smart-TV|Tizen|WebOS|Android TV|BRAVIA|Samsung|LG webOS|wv/i.test(userAgent);
-    
     // Aggressive progressive streaming settings
     player.preload = 'metadata'; // Load just enough to start
     player.setAttribute('playsinline', 'true');
@@ -909,121 +911,175 @@ function playVideo(url, filename, title, videoIndex = null) {
     if (isTV) {
         player.setAttribute('webkit-playsinline', 'true');
         player.muted = false;
+        // Disable autoplay for TV
+        player.removeAttribute('autoplay');
         enableFullscreenSupport(player);
     }
     
     // Set video source
-
     player.src = videoUrl;
     player.load();
     
     let hasStartedPlaying = false;
     let loadTimeout;
+    let tvButtonTimeout;
     
     // Show appropriate loading message
     loadingDiv.innerHTML = isTV ? '<div>Preparing TV video...</div>' : '<div>Loading video...</div>';
     
-    const showReady = () => {
-        const message = isTV ? 
-            `<div style="text-align: center; padding: 20px;">
-                <div style="font-size: 24px; margin-bottom: 15px;">📺 Ready to Play</div>
-                <div style="font-size: 16px; color: #0066ff;">
-                    Press <strong>▶ PLAY</strong> to start<br>
-                    Video streams as you watch
+    const showTVPlayButton = () => {
+        // Completely disable this function once any TV playback has started
+        if (tvPlaybackStarted || tvPlaybackActive) {
+            return;
+        }
+        
+        const userAgent = navigator.userAgent || '';
+        const isTVCheck = /Smart-TV|Tizen|WebOS|Android TV|BRAVIA|Samsung|LG webOS|wv/i.test(userAgent);
+        
+        if (isTVCheck) {
+            // Hide the original loading overlay first
+            const originalOverlay = document.getElementById('tvLoadingOverlay');
+            if (originalOverlay) {
+                originalOverlay.style.display = 'none';
+            }
+            
+            // Create a new simple overlay that we know will work
+            const newOverlay = document.createElement('div');
+            newOverlay.id = 'tvPlayOverlay';
+            newOverlay.style.cssText = `
+                position: fixed !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 100vw !important;
+                height: 100vh !important;
+                background: rgba(0,0,0,0.95) !important;
+                display: flex !important;
+                flex-direction: column !important;
+                justify-content: center !important;
+                align-items: center !important;
+                z-index: 999999 !important;
+                color: white !important;
+                font-family: Arial, sans-serif !important;
+            `;
+            
+            newOverlay.innerHTML = `
+                <div style="font-size: 48px; margin-bottom: 20px;">📺</div>
+                <div style="font-size: 24px; margin-bottom: 15px; color: white;">${title}</div>
+                <div style="font-size: 16px; color: #ccc; margin-bottom: 30px;">Ready to play</div>
+                <div style="display: flex; gap: 30px; align-items: center;">
+                    <button onclick="startTVPlayback()" 
+                            style="background: #0066ff !important; color: white !important; border: none !important; 
+                                   width: 80px !important; height: 80px !important; border-radius: 50% !important; 
+                                   font-size: 30px !important; cursor: pointer !important; 
+                                   box-shadow: 0 4px 15px rgba(0,102,255,0.3), 0 0 0 4px rgba(135,206,250,0.6) !important; 
+                                   display: flex !important; align-items: center !important; justify-content: center !important; 
+                                   transition: box-shadow 0.2s ease !important;" 
+                            tabindex="0" id="tvPlayBtn" 
+                            onfocus="this.style.boxShadow='0 4px 15px rgba(0,102,255,0.3), 0 0 0 4px rgba(135,206,250,0.8)'" 
+                            onblur="this.style.boxShadow='0 4px 15px rgba(0,102,255,0.3)'">
+                        ▶
+                    </button>
+                    <button onclick="goHome()" 
+                            style="background: #666 !important; color: white !important; border: none !important; 
+                                   width: 60px !important; height: 60px !important; border-radius: 50% !important; 
+                                   font-size: 20px !important; cursor: pointer !important; 
+                                   display: flex !important; align-items: center !important; justify-content: center !important; 
+                                   transition: box-shadow 0.2s ease !important;" 
+                            tabindex="0" id="tvCancelBtn" 
+                            onfocus="this.style.boxShadow='0 0 0 4px rgba(135,206,250,0.8)'" 
+                            onblur="this.style.boxShadow='none'">
+                        ✕
+                    </button>
                 </div>
-            </div>` :
-            `<div style="text-align: center; padding: 20px;">
+            `;
+            
+            document.body.appendChild(newOverlay);
+            
+            // Auto-focus the play button
+            setTimeout(() => {
+                const playBtn = document.getElementById('tvPlayBtn');
+                if (playBtn) playBtn.focus();
+            }, 100);
+        }
+    };
+    
+    const showReady = () => {
+        // Don't show anything for TV if playback has started
+        if (isTV && (tvPlaybackStarted || tvPlaybackActive)) {
+            return;
+        }
+        
+        if (isTV) {
+            showTVPlayButton();
+        } else {
+            const message = `<div style="text-align: center; padding: 20px;">
                 <div style="font-size: 20px; margin-bottom: 10px;">▶ Ready to Play</div>
                 <div style="color: #0066ff;">Video will stream progressively</div>
             </div>`;
-        
-        loadingDiv.innerHTML = message;
-        setTimeout(() => {
-            if (!hasStartedPlaying) loadingDiv.style.display = 'none';
-        }, 3000);
+            
+            loadingDiv.innerHTML = message;
+            setTimeout(() => {
+                if (!hasStartedPlaying) loadingDiv.style.display = 'none';
+            }, 3000);
+        }
     };
     
-    // Progressive loading event handlers
+    // Progressive loading event handlers - delay for TV to ensure readiness
     player.addEventListener('loadedmetadata', () => {
-        console.log('Progressive: Video metadata loaded');
-        showReady();
-        
-        // Auto-fullscreen for TV devices
-        if (isTV) {
-            modal.style.display = 'block';
-            modal.style.visibility = 'hidden';
-            let fullscreenAttempted = false;
-            
-            const tryFullscreen = () => {
-                if (player.readyState >= 2 && !fullscreenAttempted) {
-                    fullscreenAttempted = true;
-                    setTimeout(() => {
-                        hideTVLoadingOverlay();
-                        enableFullscreenSupport(player);
-                        
-                        setTimeout(() => {
-                            hideTVLoadingOverlay();
-                            
-                            // Optimize modal for TV viewing
-                            modal.style.cssText += `
-                                position: fixed !important;
-                                top: 0 !important;
-                                left: 0 !important;
-                                width: 100vw !important;
-                                height: 100vh !important;
-                                background: #000 !important;
-                                z-index: 9999 !important;
-                            `;
-                            
-                            // Hide unnecessary elements for TV
-                            const videoContent = modal.querySelector('.video-content');
-                            if (videoContent) {
-                                videoContent.style.cssText += `
-                                    width: 100% !important;
-                                    height: 100% !important;
-                                    max-width: none !important;
-                                    margin: 0 !important;
-                                    padding: 0 !important;
-                                `;
-                            }
-                            
-                            player.style.cssText += `
-                                width: 100% !important;
-                                height: 100% !important;
-                                object-fit: contain !important;
-                            `;
-                            
-                            modal.style.visibility = 'visible';
-                            player.play().catch(() => {});
-                        }, 1000);
-                    }, 3000);
-                } else if (!fullscreenAttempted) {
-                    setTimeout(tryFullscreen, 200);
-                }
-            };
-            tryFullscreen();
+        if (!isTV) {
+            showReady();
         }
     });
     
     player.addEventListener('canplay', () => {
-        console.log('Progressive: Video ready to play');
-        showReady();
-        
-
+        if (!isTV) {
+            showReady();
+        } else if (isTV && !tvPlaybackStarted && !tvPlaybackActive) {
+            // Wait 2 seconds after canplay for TV to ensure smooth playback
+            setTimeout(() => {
+                if (!tvPlaybackStarted && !tvPlaybackActive) {
+                    showReady();
+                }
+            }, 2000);
+        }
     });
+    
+    // Fallback timeout for TV - show play button after 5 seconds regardless
+    if (isTV) {
+        setTimeout(() => {
+            if (!tvPlaybackStarted && !tvPlaybackActive) {
+                showTVPlayButton();
+            }
+        }, 5000);
+    }
     
     player.addEventListener('play', () => {
         hasStartedPlaying = true;
         loadingDiv.style.display = 'none';
+        
+        // For TV: mark playback as started and permanently disable overlays
+        if (isTV) {
+            tvPlaybackStarted = true;
+            tvPlaybackActive = true;
+            if (tvButtonTimeout) {
+                clearTimeout(tvButtonTimeout);
+            }
+            // Permanently remove all TV overlays
+            hideTVLoadingOverlay();
+        }
     });
     
     player.addEventListener('waiting', () => {
-        loadingDiv.style.display = 'block';
-        loadingDiv.innerHTML = '<div>Buffering...</div>';
+        if (!isTV || !tvPlaybackStarted) {
+            loadingDiv.style.display = 'block';
+            loadingDiv.innerHTML = '<div>Buffering...</div>';
+        }
     });
     
     player.addEventListener('canplaythrough', () => {
-        if (hasStartedPlaying) loadingDiv.style.display = 'none';
+        if (hasStartedPlaying && (!isTV || !tvPlaybackStarted)) {
+            loadingDiv.style.display = 'none';
+        }
     });
     
     player.addEventListener('error', (e) => {
@@ -1041,15 +1097,17 @@ function playVideo(url, filename, title, videoIndex = null) {
     loadTimeout = setTimeout(() => {
         if (!hasStartedPlaying && player.readyState < 2) {
             // Try to force play even with minimal data
-            player.play().catch(() => {
-                loadingDiv.innerHTML = `
-                    <div style="text-align: center; padding: 20px;">
-                        <div style="color: #ff9500; margin-bottom: 10px;">⚠️ File Loading Slowly</div>
-                        <div style="margin-bottom: 15px;">Click play when ready</div>
-                        <button onclick="closeVideo()" style="background: #0066ff; color: white; border: none; padding: 10px 20px; border-radius: 5px;">Close</button>
-                    </div>
-                `;
-            });
+            if (!isTV) {
+                player.play().catch(() => {
+                    loadingDiv.innerHTML = `
+                        <div style="text-align: center; padding: 20px;">
+                            <div style="color: #ff9500; margin-bottom: 10px;">⚠️ File Loading Slowly</div>
+                            <div style="margin-bottom: 15px;">Click play when ready</div>
+                            <button onclick="closeVideo()" style="background: #0066ff; color: white; border: none; padding: 10px 20px; border-radius: 5px;">Close</button>
+                        </div>
+                    `;
+                });
+            }
         }
     }, 10000);
     
@@ -1073,10 +1131,16 @@ function playVideo(url, filename, title, videoIndex = null) {
         player.onended = () => playNextVideo();
     }
     
-    // For TV: show loading overlay, for others show modal
-    if (isTV) {
+    // For TV: show loading overlay only if playback hasn't started, for others show modal
+    if (isTV && !tvPlaybackActive) {
         modal.style.display = 'none';
         showTVLoadingOverlay(title);
+        // Show play button after 2 seconds
+        tvButtonTimeout = setTimeout(() => {
+            if (!tvPlaybackStarted) {
+                showTVPlayButton();
+            }
+        }, 2000);
     } else {
         modal.style.display = 'block';
     }
@@ -1111,20 +1175,26 @@ function enableFullscreenSupport(player) {
     controlsDiv.insertBefore(fullscreenBtn, controlsDiv.firstChild);
     // Debug disabled
     
-    // Handle fullscreen changes
-    document.onfullscreenchange = document.onwebkitfullscreenchange = document.onmozfullscreenchange = document.onmsfullscreenchange = () => {
-        const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
-        const btn = document.getElementById('fullscreenBtn');
-        if (btn) {
-            btn.textContent = isFullscreen ? '⛶ Exit Fullscreen' : '⛶ Fullscreen';
-            btn.onclick = () => toggleFullscreen(player);
-        }
-        
-        const isTV = navigator.userAgent.includes('wv') || navigator.userAgent.includes('Android TV');
-        if (isTV && !isFullscreen) {
-            goHome();
-        }
-    };
+    // Handle fullscreen changes - only set once to avoid multiple handlers
+    if (!document.fullscreenHandlerSet) {
+        document.onfullscreenchange = document.onwebkitfullscreenchange = document.onmozfullscreenchange = document.onmsfullscreenchange = () => {
+            const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+            const btn = document.getElementById('fullscreenBtn');
+            if (btn) {
+                btn.textContent = isFullscreen ? '⛶ Exit Fullscreen' : '⛶ Fullscreen';
+                btn.onclick = () => toggleFullscreen(document.getElementById('videoPlayer'));
+            }
+            
+            const isTV = navigator.userAgent.includes('wv') || navigator.userAgent.includes('Android TV');
+            if (isTV && !isFullscreen) {
+                // Reset flags immediately when exiting fullscreen
+                tvPlaybackActive = false;
+                tvPlaybackStarted = false;
+                goHome();
+            }
+        };
+        document.fullscreenHandlerSet = true;
+    }
 }
 
 // Toggle fullscreen function with cross-browser support
@@ -1204,6 +1274,10 @@ function closeVideo() {
     const modal = document.getElementById('videoModal');
     const player = document.getElementById('videoPlayer');
     
+    // Reset TV playback flags completely
+    tvPlaybackActive = false;
+    tvPlaybackStarted = false;
+    
     // Save progress before closing
     if (currentUser && currentSeries && player.src) {
         const filename = player.src.split('/').pop().split('?')[0];
@@ -1218,6 +1292,18 @@ function closeVideo() {
     player.removeAttribute('src');
     player.removeAttribute('poster');
     player.load(); // Clear cached content
+    
+    // Clear event handlers
+    player.ontimeupdate = null;
+    player.onended = null;
+    player.onplay = null;
+    player.onwaiting = null;
+    player.onerror = null;
+    player.oncanplay = null;
+    player.onloadedmetadata = null;
+    
+    // Remove all TV overlays
+    hideTVLoadingOverlay();
     
     modal.style.display = 'none';
 }
@@ -1310,15 +1396,52 @@ function goHome() {
     const player = document.getElementById('videoPlayer');
     const videoModal = document.getElementById('videoModal');
     
+    // Reset TV playback flags completely
+    tvPlaybackActive = false;
+    tvPlaybackStarted = false;
+    
     // Stop video to prevent background playback
     if (player) {
         player.pause();
         player.src = '';
     }
     
+    // Aggressively remove ALL TV overlays and elements
+    const elementsToRemove = [
+        'tvLoadingOverlay',
+        'tvPlayOverlay',
+        'tvBlackScreen',
+        'tvFullscreenControls',
+        ...Array.from(document.querySelectorAll('[id*="tv"][id*="verlay"]')),
+        ...Array.from(document.querySelectorAll('[style*="position:fixed"][style*="z-index"]'))
+    ];
+    
+    elementsToRemove.forEach(el => {
+        if (typeof el === 'string') {
+            const element = document.getElementById(el);
+            if (element) element.remove();
+        } else if (el && el.remove && el.id && el.id.includes('tv')) {
+            el.remove();
+        }
+    });
+    
     videoModal.style.display = 'none';
     document.getElementById('seriesModal').style.display = 'none';
+    
+    // Reset navigation state completely
     currentSwimlaneIndex = -1;
+    currentSeries = null;
+    
+    // Clear any focused states
+    document.querySelectorAll('.card-focused, .swimlane-focused').forEach(el => {
+        el.classList.remove('card-focused', 'swimlane-focused');
+    });
+    
+    // NUCLEAR OPTION: Completely reload series data and recreate all cards
+    setTimeout(() => {
+        console.log('Nuclear reset: Reloading all series data');
+        loadSeries(); // This will completely recreate all cards with fresh event handlers
+    }, 100);
 }
 
 // TV navigation state
@@ -1413,6 +1536,48 @@ document.addEventListener('keydown', (event) => {
     const videoModal = document.getElementById('videoModal');
     const seriesModal = document.getElementById('seriesModal');
     const player = document.getElementById('videoPlayer');
+    
+    // Skip TV overlay controls entirely if playback has started
+    if (!tvPlaybackStarted) {
+        // Handle TV play overlay controls (only if overlay exists and is visible)
+        const tvPlayOverlay = document.getElementById('tvPlayOverlay');
+        if (tvPlayOverlay && tvPlayOverlay.style.display !== 'none' && document.body.contains(tvPlayOverlay)) {
+            switch(event.key) {
+                case 'Enter':
+                case ' ':
+                    event.preventDefault();
+                    startTVPlayback();
+                    break;
+                case 'Escape':
+                case 'Backspace':
+                    event.preventDefault();
+                    goHome();
+                    break;
+            }
+            return;
+        }
+        
+        // Handle TV loading overlay controls (only if overlay exists and is visible)
+        const tvLoadingOverlay = document.getElementById('tvLoadingOverlay');
+        if (tvLoadingOverlay && tvLoadingOverlay.style.display !== 'none' && document.body.contains(tvLoadingOverlay)) {
+            switch(event.key) {
+                case 'Enter':
+                case ' ':
+                    event.preventDefault();
+                    const playBtn = tvLoadingOverlay.querySelector('button[onclick="startTVPlayback()"]');
+                    if (playBtn) {
+                        startTVPlayback();
+                    }
+                    break;
+                case 'Escape':
+                case 'Backspace':
+                    event.preventDefault();
+                    goHome();
+                    break;
+            }
+            return;
+        }
+    }
     
     // Handle video modal controls (only if actually visible and focused)
     if (videoModal.style.display === 'block' && !document.querySelector('#seriesModal[style*="block"]')) {
@@ -1714,6 +1879,9 @@ function showTVLoadingOverlay(title) {
         font-family: Arial, sans-serif;
     `;
     
+    const userAgent = navigator.userAgent || '';
+    const isTV = /Smart-TV|Tizen|WebOS|Android TV|BRAVIA|Samsung|LG webOS|wv/i.test(userAgent);
+    
     overlay.innerHTML = `
         <div style="font-size: 48px; margin-bottom: 30px;">📺</div>
         <div style="font-size: 24px; margin-bottom: 20px;">Loading Video</div>
@@ -1730,10 +1898,81 @@ function showTVLoadingOverlay(title) {
     document.body.appendChild(overlay);
 }
 
+// Function to start TV playback when play button is pressed
+function startTVPlayback() {
+    const player = document.getElementById('videoPlayer');
+    const modal = document.getElementById('videoModal');
+    
+    // Aggressively remove ALL overlays and debug elements
+    const elementsToRemove = [
+        'tvLoadingOverlay',
+        'tvPlayOverlay',
+        ...Array.from(document.querySelectorAll('[style*="position:fixed"][style*="background:yellow"]')),
+        ...Array.from(document.querySelectorAll('[style*="position:fixed"][style*="background:blue"]')),
+        ...Array.from(document.querySelectorAll('[style*="position:fixed"][style*="background:purple"]')),
+        ...Array.from(document.querySelectorAll('[style*="position:fixed"][style*="background:green"]')),
+        ...Array.from(document.querySelectorAll('[style*="position:fixed"][style*="background:cyan"]')),
+        ...Array.from(document.querySelectorAll('[style*="position:fixed"][style*="background:orange"]'))
+    ];
+    
+    elementsToRemove.forEach(el => {
+        if (typeof el === 'string') {
+            const element = document.getElementById(el);
+            if (element) element.remove();
+        } else if (el && el.remove) {
+            el.remove();
+        }
+    });
+    
+    // Close modals
+    document.getElementById('seriesModal').style.display = 'none';
+    
+    // Show modal and prepare for fullscreen
+    modal.style.display = 'block';
+    modal.style.cssText += `
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        background: #000 !important;
+        z-index: 9999 !important;
+    `;
+    
+    // Hide unnecessary elements for TV
+    const videoContent = modal.querySelector('.video-content');
+    if (videoContent) {
+        videoContent.style.cssText += `
+            width: 100% !important;
+            height: 100% !important;
+            max-width: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        `;
+    }
+    
+    player.style.cssText += `
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: contain !important;
+    `;
+    
+    // Attempt fullscreen
+    setTimeout(() => {
+        toggleFullscreen(player);
+        // Start playback
+        player.play().catch(console.error);
+    }, 500);
+}
+
 function hideTVLoadingOverlay() {
     const overlay = document.getElementById('tvLoadingOverlay');
     if (overlay) {
         overlay.remove();
+    }
+    const playOverlay = document.getElementById('tvPlayOverlay');
+    if (playOverlay) {
+        playOverlay.remove();
     }
 }
 
