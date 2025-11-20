@@ -191,7 +191,7 @@ public class MainActivity extends Activity {
                 siteLoaded = true;
                 stopPeriodicRetry();
                 
-                // Inject back button handler
+                // Inject TV remote navigation handlers
                 view.evaluateJavascript(
                     "document.addEventListener('keydown', function(e) {" +
                     "  if (e.keyCode === 4 || e.key === 'GoBack') {" +
@@ -199,6 +199,17 @@ public class MainActivity extends Activity {
                     "    if (seriesModal && seriesModal.style.display === 'block') {" +
                     "      e.preventDefault();" +
                     "      closeSeries();" +
+                    "    }" +
+                    "  }" +
+                    "  // Handle scrolling in video modal" +
+                    "  var videoModal = document.getElementById('videoModal');" +
+                    "  if (videoModal && videoModal.style.display === 'block') {" +
+                    "    if (e.keyCode === 38) { // Up arrow" +
+                    "      e.preventDefault();" +
+                    "      videoModal.scrollBy(0, -100);" +
+                    "    } else if (e.keyCode === 40) { // Down arrow" +
+                    "      e.preventDefault();" +
+                    "      videoModal.scrollBy(0, 100);" +
                     "    }" +
                     "  }" +
                     "});", null);
@@ -338,8 +349,11 @@ public class MainActivity extends Activity {
             case KeyEvent.KEYCODE_DPAD_UP:
             case KeyEvent.KEYCODE_DPAD_DOWN:
             case KeyEvent.KEYCODE_DPAD_CENTER:
-                // Let WebView handle navigation
-                return super.onKeyDown(keyCode, event);
+                // Send arrow keys to JavaScript for custom handling
+                webView.evaluateJavascript(
+                    "var event = new KeyboardEvent('keydown', { keyCode: " + keyCode + ", bubbles: true });" +
+                    "document.dispatchEvent(event);", null);
+                return true;
             case KeyEvent.KEYCODE_BACK:
                 // Handle fullscreen exit first
                 WebChromeClient chromeClient = (WebChromeClient) webView.getWebChromeClient();
