@@ -761,7 +761,14 @@ async function openSeries(series) {
         });
         if (response.ok) {
             currentSeries = await response.json();
-            showSeriesModal(currentSeries);
+            
+            // If series has only one video, play it directly
+            if (currentSeries.videos && currentSeries.videos.length === 1) {
+                const video = currentSeries.videos[0];
+                playVideo(video.url, video.filename, video.title, 0);
+            } else {
+                showSeriesModal(currentSeries);
+            }
         } else {
             alert('Failed to load series');
         }

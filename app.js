@@ -54,12 +54,28 @@ const authLimiter = rateLimit({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static('.'));
 
-// Log all requests
+// IP anonymization function
+function anonymizeIP(ip) {
+    if (ip.includes(':')) {
+        // IPv6 - zero out last 80 bits
+        return ip.split(':').slice(0, 3).join(':') + '::0';
+    } else {
+        // IPv4 - zero out last octet
+        return ip.split('.').slice(0, 3).join('.') + '.0';
+    }
+}
+
+// Log requests only for authenticated users
 app.use((req, res, next) => {
-    console.log(`📥 ${req.method} ${req.path} - ${req.headers['user-agent']?.substring(0, 30)}`);
-    if (req.path.includes('/videos/')) {
-        console.log(`🎬 VIDEO REQUEST: ${req.method} ${req.path}`);
-        console.log(`📊 Range: ${req.headers.range || 'none'}`);
+    const token = req.header('Authorization')?.replace('Bearer ', '') || req.cookies?.authToken;
+    
+    if (token) {
+        const anonymizedIP = anonymizeIP(req.ip || req.connection.remoteAddress || 'unknown');
+        console.log(`📥 ${req.method} ${req.path} - IP:${anonymizedIP} - ${req.headers['user-agent']?.substring(0, 30)}`);
+        if (req.path.includes('/videos/')) {
+            console.log(`🎬 VIDEO REQUEST: ${req.method} ${req.path} - IP:${anonymizedIP}`);
+            console.log(`📊 Range: ${req.headers.range || 'none'}`);
+        }
     }
     next();
 });
