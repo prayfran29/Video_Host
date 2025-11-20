@@ -480,8 +480,20 @@ public class MainActivity extends Activity {
     private void startInactivityTimer() {
         stopInactivityTimer();
         sleepRunnable = () -> {
-            // Put TV to sleep by finishing the activity
-            finish();
+            // Check if video is playing before sleeping
+            webView.evaluateJavascript(
+                "(function() {" +
+                "  var video = document.querySelector('video');" +
+                "  return video && !video.paused && !video.ended;" +
+                "})();", result -> {
+                    if ("true".equals(result)) {
+                        // Video is playing, restart timer
+                        startInactivityTimer();
+                    } else {
+                        // No video playing, sleep
+                        finish();
+                    }
+                });
         };
         inactivityHandler.postDelayed(sleepRunnable, INACTIVITY_TIMEOUT);
     }
