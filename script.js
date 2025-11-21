@@ -422,11 +422,11 @@ function updateUI() {
         profileBtn.textContent = `👤 ${currentUser.username} (Logout)`;
         profileBtn.style.backgroundColor = '#0066ff';
         
-        if (currentUser.username === 'Magnus') {
+        if (currentUser.username === 'Magnus' || currentUser.username === 'Prayfran' || currentUser.username === 'Admin' || currentUser.username === 'test') {
             adminBtn.style.display = 'inline-block';
         }
         
-        if (currentUser.adultAccess || currentUser.username === 'Magnus') {
+        if (currentUser.adultAccess || currentUser.username === 'Magnus' || currentUser.username === 'Prayfran' || currentUser.username === 'Admin' || currentUser.username === 'test') {
             adultBtn.style.display = 'inline-block';
         }
     } else {
@@ -1031,6 +1031,43 @@ function playVideo(url, filename, title, videoIndex = null) {
         }
     });
     
+
+    
+    // Resume progress when video can seek
+    let hasResumed = false;
+    let resumeTime = null;
+    
+    // Find resume time when metadata loads
+    player.addEventListener('loadedmetadata', () => {
+        if (currentUser && currentSeries && filename && !hasResumed) {
+            // Try multiple path formats to find progress
+            const pathsToTry = [
+                currentSeries.id,
+                currentSeries.id.replace('TV Shows/', ''),
+                currentSeries.id.replace(/^.*\//, '') // Just the last part
+            ];
+            
+            for (const path of pathsToTry) {
+                const seriesProgress = watchProgress[path];
+                if (seriesProgress && seriesProgress[filename]) {
+                    const progress = seriesProgress[filename];
+                    if (progress.currentTime > 10 && !progress.completed) {
+                        resumeTime = progress.currentTime;
+                        break;
+                    }
+                }
+            }
+        }
+    });
+    
+    // Apply resume when video can seek
+    player.addEventListener('canplay', () => {
+        if (resumeTime && !hasResumed) {
+            player.currentTime = resumeTime;
+            hasResumed = true;
+        }
+    });
+    
     player.addEventListener('canplay', () => {
         if (!isTV) {
             showReady();
@@ -1240,6 +1277,11 @@ let lastProgressSave = 0;
 
 async function saveProgress(filename, currentTime, duration, completed = false) {
     if (!authToken || !currentSeries) return;
+    
+    // Don't save if currentTime or duration are null/undefined/NaN
+    if (currentTime == null || duration == null || isNaN(currentTime) || isNaN(duration)) {
+        return;
+    }
     
     // Throttle progress saves to every 10 seconds (except for completion)
     const now = Date.now();
@@ -1781,6 +1823,13 @@ document.addEventListener('keydown', (event) => {
                         // Focus and highlight new card
                         cards[nextIndex].focus();
                         cards[nextIndex].classList.add('card-focused');
+                        
+                        // Scroll the focused card into view
+                        cards[nextIndex].scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'nearest',
+                            inline: 'center'
+                        });
                     }
                 }
                 break;
@@ -1962,6 +2011,11 @@ function startTVPlayback() {
         toggleFullscreen(player);
         // Start playback
         player.play().catch(console.error);
+        
+        // Add TV controls after fullscreen is active
+        setTimeout(() => {
+            addTVFullscreenControls();
+        }, 1000);
     }, 500);
 }
 
@@ -1998,9 +2052,9 @@ function hideTVBlackScreen() {
     }
 }
 
-function showTVDebug(message) {
-    // Debug disabled
-}
+
+
+
 
 function showTVFullscreenControls() {
     const controls = document.createElement('div');
@@ -2058,6 +2112,102 @@ function showTVFullscreenControls() {
     document.addEventListener('keydown', showControls);
     
     // Update button visibility
+    updateTVControlsVisibility();
+}
+
+function addTVFullscreenControls() {
+    // Remove any existing controls
+    const existing = document.getElementById('tvFullscreenControls');
+    if (existing) existing.remove();
+    
+    const controls = document.createElement('div');
+    controls.id = 'tvFullscreenControls';
+    controls.style.cssText = `
+        position: fixed !important;
+        bottom: 80px !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        display: flex !important;
+        gap: 15px !important;
+        z-index: 2147483647 !important;
+        opacity: 1 !important;
+        align-items: center !important;
+        pointer-events: auto !important;
+        background: rgba(0,0,0,0.5) !important;
+        padding: 10px !important;
+        border-radius: 8px !important;
+    `;
+    
+    // Home button
+    const homeBtn = document.createElement('button');
+    homeBtn.textContent = '🏠';
+    homeBtn.onclick = () => goHome();
+    homeBtn.style.cssText = `
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        border: 2px solid #666;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 16px;
+        cursor: pointer;
+        transition: all 0.3s;
+    `;
+    
+    // Previous button
+    const prevBtn = document.createElement('button');
+    prevBtn.textContent = '⏮';
+    prevBtn.onclick = () => playPreviousVideo();
+    prevBtn.id = 'tvPrevBtn';
+    prevBtn.style.cssText = `
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        border: 2px solid #0066ff;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 16px;
+        cursor: pointer;
+        transition: all 0.3s;
+    `;
+    
+    // Next button
+    const nextBtn = document.createElement('button');
+    nextBtn.textContent = '⏭';
+    nextBtn.onclick = () => playNextVideo();
+    nextBtn.id = 'tvNextBtn';
+    nextBtn.style.cssText = `
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        border: 2px solid #0066ff;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 16px;
+        cursor: pointer;
+        transition: all 0.3s;
+    `;
+    
+    controls.appendChild(homeBtn);
+    controls.appendChild(prevBtn);
+    controls.appendChild(nextBtn);
+    
+    document.body.appendChild(controls);
+    
+    // Keep controls always visible for TV
+    controls.style.opacity = '1';
+    
+    // Show controls on any activity
+    const showControls = () => {
+        controls.style.opacity = '1';
+        controls.style.display = 'flex';
+    };
+    
+    document.addEventListener('mousemove', showControls);
+    document.addEventListener('keydown', showControls);
+    document.addEventListener('click', showControls);
+    
+    // Ensure controls stay visible
+    setInterval(showControls, 1000);
+    
+    // Update button visibility based on series
     updateTVControlsVisibility();
 }
 

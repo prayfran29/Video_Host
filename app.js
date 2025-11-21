@@ -1091,10 +1091,10 @@ app.get('/adult', (req, res) => {
 });
 
 // Admin routes
-const ADMIN_USERNAME = 'Magnus';
+const ADMIN_USERNAMES = ['Magnus', 'Prayfran', 'Admin', 'test'];
 
 const adminAuth = (req, res, next) => {
-    if (req.user.username !== ADMIN_USERNAME) {
+    if (!ADMIN_USERNAMES.includes(req.user.username)) {
         return res.status(403).json({ error: 'Admin access required' });
     }
     next();
