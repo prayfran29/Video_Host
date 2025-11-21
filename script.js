@@ -922,56 +922,40 @@ function stopWatching() {
     goHome();
 }
 
-function addControlsToFullscreenElement(fsElement) {
-    // Remove any existing controls
-    const existing = fsElement.querySelector('#fsControls');
-    if (existing) existing.remove();
-    
-    // Create controls directly in the fullscreen element
-    const controls = document.createElement('div');
-    controls.id = 'fsControls';
-    controls.style.cssText = `
-        position: absolute !important;
-        bottom: 60px !important;
-        left: 50% !important;
-        transform: translateX(-50%) !important;
-        display: flex !important;
-        gap: 20px !important;
-        z-index: 999999 !important;
-        background: rgba(255,0,0,0.9) !important;
-        padding: 20px !important;
-        border-radius: 12px !important;
-        border: 3px solid #ffff00 !important;
-    `;
-    
-    // Create buttons
-    const buttons = [
-        { text: '⏮', action: () => playPreviousVideo() },
-        { text: '🏠', action: () => goHome() },
-        { text: '⏭', action: () => playNextVideo() }
-    ];
-    
-    buttons.forEach(btn => {
-        const button = document.createElement('button');
-        button.innerHTML = btn.text;
-        button.onclick = btn.action;
-        button.style.cssText = `
-            background: #0000ff !important;
-            color: white !important;
-            border: none !important;
-            padding: 15px 20px !important;
-            border-radius: 8px !important;
-            font-size: 24px !important;
-            cursor: pointer !important;
-        `;
-        controls.appendChild(button);
-    });
-    
-    fsElement.appendChild(controls);
-}
+
 
 function playVideo(url, filename, title, videoIndex = null) {
     try {
+    // FIRST: Force exit fullscreen completely before doing anything else
+    const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+    if (isFullscreen) {
+        if (document.exitFullscreen) {
+            document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+        } else if (document.mozCancelFullScreen) {
+            document.mozCancelFullScreen();
+        } else if (document.msExitFullscreen) {
+            document.msExitFullscreen();
+        }
+        
+        // Wait for fullscreen to fully exit before proceeding
+        return new Promise(resolve => {
+            const checkFullscreenExit = () => {
+                const stillFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+                if (!stillFullscreen) {
+                    // Fullscreen exited, now start the video
+                    setTimeout(() => playVideo(url, filename, title, videoIndex), 100);
+                    resolve();
+                } else {
+                    // Still in fullscreen, check again
+                    setTimeout(checkFullscreenExit, 50);
+                }
+            };
+            checkFullscreenExit();
+        });
+    }
+    
     const modal = document.getElementById('videoModal');
     const player = document.getElementById('videoPlayer');
     const videoTitle = document.getElementById('videoTitle');
@@ -987,8 +971,11 @@ function playVideo(url, filename, title, videoIndex = null) {
     const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent) && !isTV;
     
     // Reset player and show loading - remove any poster to prevent broken icon
+    player.pause();
     player.src = '';
     player.removeAttribute('poster');
+    player.style.backgroundImage = 'none'; // Remove any background image
+    player.style.background = '#000'; // Set solid black background
     player.load(); // Force reload to clear any cached poster
     document.getElementById('videoLoading').style.display = 'block';
     
@@ -1046,9 +1033,14 @@ function playVideo(url, filename, title, videoIndex = null) {
         enableFullscreenSupport(player);
     }
     
-    // Set video source
+    // Set video source with proper error handling
+    player.onerror = null; // Clear any existing error handlers
     player.src = videoUrl;
-    player.load();
+    
+    // Add a small delay before loading to ensure clean state
+    setTimeout(() => {
+        player.load();
+    }, 100);
     
     let hasStartedPlaying = false;
     let loadTimeout;
@@ -1253,6 +1245,10 @@ function playVideo(url, filename, title, videoIndex = null) {
     
     player.addEventListener('error', (e) => {
         console.error('Progressive video error:', player.error);
+        // Clear any broken poster/background
+        player.removeAttribute('poster');
+        player.style.backgroundImage = 'none';
+        player.style.background = '#000';
         loadingDiv.innerHTML = `
             <div style="text-align: center; padding: 20px;">
                 <div style="color: #ff6b6b; margin-bottom: 10px;">❌ Video Error</div>
@@ -1400,17 +1396,7 @@ function enableFullscreenSupport(player) {
                 btn.onclick = () => toggleFullscreen(document.getElementById('videoPlayer'));
             }
             
-            // Recreate overlay controls when entering/exiting fullscreen
-            if (isFullscreen) {
-                setTimeout(() => {
-                    const fsElement = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
-                    if (fsElement) {
-                        addControlsToFullscreenElement(fsElement);
-                    }
-                }, 500);
-            } else {
-                setTimeout(() => showVideoOverlayControls(), 100);
-            }
+
             
             const isTV = navigator.userAgent.includes('wv') || navigator.userAgent.includes('Android TV');
             const player = document.getElementById('videoPlayer');
@@ -1507,101 +1493,11 @@ async function saveProgress(filename, currentTime, duration, completed = false) 
     }
 }
 
-function createFullscreenOverlay() {
-    // Remove any existing fullscreen overlay
-    const existing = document.getElementById('fullscreenVideoOverlay');
-    if (existing) existing.remove();
-    
-    // Create overlay that covers the entire screen
-    const overlay = document.createElement('div');
-    overlay.id = 'fullscreenVideoOverlay';
-    overlay.style.cssText = `
-        position: fixed !important;
-        top: 0 !important;
-        left: 0 !important;
-        width: 100vw !important;
-        height: 100vh !important;
-        pointer-events: none !important;
-        z-index: 2147483647 !important;
-    `;
-    
-    // Create controls container
-    const controls = document.createElement('div');
-    controls.style.cssText = `
-        position: absolute !important;
-        bottom: 80px !important;
-        left: 50% !important;
-        transform: translateX(-50%) !important;
-        display: flex !important;
-        gap: 20px !important;
-        pointer-events: auto !important;
-        background: rgba(0,0,0,0.9) !important;
-        padding: 20px 30px !important;
-        border-radius: 15px !important;
-        border: 3px solid #0066ff !important;
-        box-shadow: 0 0 30px rgba(0,102,255,1) !important;
-    `;
-    
-    // Create buttons
-    const buttons = [
-        { text: '⏮', action: () => playPreviousVideo(), id: 'fsOverlayPrev' },
-        { text: '🏠', action: () => goHome(), id: 'fsOverlayHome' },
-        { text: '⏭', action: () => playNextVideo(), id: 'fsOverlayNext' }
-    ];
-    
-    buttons.forEach(btn => {
-        const button = document.createElement('button');
-        button.innerHTML = btn.text;
-        button.onclick = btn.action;
-        button.id = btn.id;
-        button.style.cssText = `
-            background: rgba(0,102,255,0.9) !important;
-            color: white !important;
-            border: 2px solid #fff !important;
-            padding: 15px 20px !important;
-            border-radius: 10px !important;
-            font-size: 24px !important;
-            cursor: pointer !important;
-            pointer-events: auto !important;
-            min-width: 60px !important;
-        `;
-        controls.appendChild(button);
-    });
-    
-    overlay.appendChild(controls);
-    document.body.appendChild(overlay);
-    
-    // Auto-hide functionality
-    let hideTimeout;
-    const showControls = () => {
-        controls.style.opacity = '1';
-        clearTimeout(hideTimeout);
-        hideTimeout = setTimeout(() => {
-            controls.style.opacity = '0.3';
-        }, 4000);
-    };
-    
-    document.addEventListener('mousemove', showControls);
-    document.addEventListener('keydown', showControls);
-    
-    // Update button visibility
-    const prevBtn = document.getElementById('fsOverlayPrev');
-    const nextBtn = document.getElementById('fsOverlayNext');
-    if (currentSeries) {
-        prevBtn.style.display = currentVideoIndex > 0 ? 'block' : 'none';
-        nextBtn.style.display = currentVideoIndex < currentSeries.videos.length - 1 ? 'block' : 'none';
-    }
-    
-    showControls();
-}
 
-function showVideoOverlayControls() {
-    // No overlay controls - use remote buttons only
-}
 
-function updateOverlayControlsVisibility() {
-    // No overlay controls - using remote buttons only
-}
+
+
+
 
 function closeVideo() {
     const modal = document.getElementById('videoModal');
@@ -1619,29 +1515,42 @@ function closeVideo() {
         }
     }
     
-    // Clean video player
+    // Clean video player completely
     player.pause();
     player.currentTime = 0;
     player.removeAttribute('src');
     player.removeAttribute('poster');
-    player.load(); // Clear cached content
+    player.style.backgroundImage = 'none';
+    player.style.background = '#000';
     
-    // Clear event handlers
-    player.ontimeupdate = null;
-    player.onended = null;
-    player.onplay = null;
-    player.onwaiting = null;
-    player.onerror = null;
-    player.oncanplay = null;
-    player.onloadedmetadata = null;
+    // Create a clean video element to replace the current one
+    const newPlayer = document.createElement('video');
+    newPlayer.id = 'videoPlayer';
+    newPlayer.controls = true;
+    newPlayer.preload = 'metadata';
+    newPlayer.style.cssText = 'width: 100% !important; height: 100% !important; background: #000 !important; background-image: none !important; object-fit: contain;';
+    newPlayer.innerHTML = '<source src="" type="video/mp4">Your browser does not support the video tag.';
+    
+    // Replace the old player with the new clean one
+    player.parentNode.replaceChild(newPlayer, player);
+    
+    // Clear event handlers on the new player
+    const cleanPlayer = document.getElementById('videoPlayer');
+    cleanPlayer.ontimeupdate = null;
+    cleanPlayer.onended = null;
+    cleanPlayer.onplay = null;
+    cleanPlayer.onwaiting = null;
+    cleanPlayer.onerror = null;
+    cleanPlayer.oncanplay = null;
+    cleanPlayer.onloadedmetadata = null;
     
     // Remove all overlays
     hideTVLoadingOverlay();
     hideMobileLoadingOverlay();
-    const overlayControls = document.getElementById('videoOverlayControls');
-    if (overlayControls) overlayControls.remove();
     const fsOverlay = document.getElementById('fullscreenVideoOverlay');
     if (fsOverlay) fsOverlay.remove();
+    const tvControls = document.getElementById('tvFullscreenControls');
+    if (tvControls) tvControls.remove();
     
     modal.style.display = 'none';
 }
@@ -1672,6 +1581,15 @@ function updateVideoControls() {
 
 function playPreviousVideo() {
     if (currentSeries && currentVideoIndex > 0) {
+        // Force exit fullscreen first
+        const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+        if (isFullscreen) {
+            if (document.exitFullscreen) document.exitFullscreen();
+            else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+            else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
+            else if (document.msExitFullscreen) document.msExitFullscreen();
+        }
+        
         // Reset TV playback flags to trigger loading modal flow
         tvPlaybackActive = false;
         tvPlaybackStarted = false;
@@ -1683,6 +1601,15 @@ function playPreviousVideo() {
 
 function playNextVideo() {
     if (currentSeries && currentVideoIndex < currentSeries.videos.length - 1) {
+        // Force exit fullscreen first
+        const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+        if (isFullscreen) {
+            if (document.exitFullscreen) document.exitFullscreen();
+            else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+            else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
+            else if (document.msExitFullscreen) document.msExitFullscreen();
+        }
+        
         // Reset TV playback flags to trigger loading modal flow
         tvPlaybackActive = false;
         tvPlaybackStarted = false;
@@ -2497,11 +2424,6 @@ function startTVPlayback() {
         toggleFullscreen(player);
         // Start playback
         player.play().catch(console.error);
-        
-        // Add TV controls after fullscreen is active
-        setTimeout(() => {
-            addTVFullscreenControls();
-        }, 1000);
     }, 500);
 }
 
@@ -2542,177 +2464,13 @@ function hideTVBlackScreen() {
 
 
 
-function showTVFullscreenControls() {
-    const controls = document.createElement('div');
-    controls.id = 'tvFullscreenControls';
-    controls.style.cssText = `
-        position: fixed;
-        bottom: 50px;
-        left: 50%;
-        transform: translateX(-50%);
-        display: flex;
-        gap: 20px;
-        z-index: 10001;
-        opacity: 0;
-        transition: opacity 0.3s;
-    `;
-    
-    const buttons = [
-        { text: '⏮ Previous', action: 'playPreviousVideo()', id: 'tvPrevBtn' },
-        { text: 'Next ⏭', action: 'playNextVideo()', id: 'tvNextBtn' }
-    ];
-    
-    buttons.forEach(btn => {
-        const button = document.createElement('button');
-        button.textContent = btn.text;
-        button.onclick = () => eval(btn.action);
-        if (btn.id) button.id = btn.id;
-        button.style.cssText = `
-            background: rgba(0, 0, 0, 0.8);
-            color: white;
-            border: 2px solid #0066ff;
-            padding: 15px 25px;
-            border-radius: 8px;
-            font-size: 18px;
-            cursor: pointer;
-            transition: all 0.3s;
-        `;
-        button.onmouseover = () => button.style.background = 'rgba(0, 102, 255, 0.8)';
-        button.onmouseout = () => button.style.background = 'rgba(0, 0, 0, 0.8)';
-        controls.appendChild(button);
-    });
-    
-    document.body.appendChild(controls);
-    
-    // Show controls on mouse move or key press
-    let hideTimeout;
-    const showControls = () => {
-        controls.style.opacity = '1';
-        clearTimeout(hideTimeout);
-        hideTimeout = setTimeout(() => {
-            controls.style.opacity = '0';
-        }, 3000);
-    };
-    
-    document.addEventListener('mousemove', showControls);
-    document.addEventListener('keydown', showControls);
-    
-    // Update button visibility
-    updateTVControlsVisibility();
-}
 
-function addTVFullscreenControls() {
-    // Remove any existing controls
-    const existing = document.getElementById('tvFullscreenControls');
-    if (existing) existing.remove();
-    
-    const controls = document.createElement('div');
-    controls.id = 'tvFullscreenControls';
-    controls.style.cssText = `
-        position: fixed !important;
-        bottom: 80px !important;
-        left: 50% !important;
-        transform: translateX(-50%) !important;
-        display: flex !important;
-        gap: 15px !important;
-        z-index: 2147483647 !important;
-        opacity: 1 !important;
-        align-items: center !important;
-        pointer-events: auto !important;
-        background: rgba(0,0,0,0.5) !important;
-        padding: 10px !important;
-        border-radius: 8px !important;
-    `;
-    
-    // Home button
-    const homeBtn = document.createElement('button');
-    homeBtn.textContent = '🏠';
-    homeBtn.onclick = () => goHome();
-    homeBtn.style.cssText = `
-        background: rgba(0, 0, 0, 0.8);
-        color: white;
-        border: 2px solid #666;
-        padding: 8px 12px;
-        border-radius: 6px;
-        font-size: 16px;
-        cursor: pointer;
-        transition: all 0.3s;
-    `;
-    
-    // Previous button
-    const prevBtn = document.createElement('button');
-    prevBtn.textContent = '⏮';
-    prevBtn.onclick = () => playPreviousVideo();
-    prevBtn.id = 'tvPrevBtn';
-    prevBtn.style.cssText = `
-        background: rgba(0, 0, 0, 0.8);
-        color: white;
-        border: 2px solid #0066ff;
-        padding: 8px 12px;
-        border-radius: 6px;
-        font-size: 16px;
-        cursor: pointer;
-        transition: all 0.3s;
-    `;
-    
-    // Next button
-    const nextBtn = document.createElement('button');
-    nextBtn.textContent = '⏭';
-    nextBtn.onclick = () => playNextVideo();
-    nextBtn.id = 'tvNextBtn';
-    nextBtn.style.cssText = `
-        background: rgba(0, 0, 0, 0.8);
-        color: white;
-        border: 2px solid #0066ff;
-        padding: 8px 12px;
-        border-radius: 6px;
-        font-size: 16px;
-        cursor: pointer;
-        transition: all 0.3s;
-    `;
-    
-    controls.appendChild(homeBtn);
-    controls.appendChild(prevBtn);
-    controls.appendChild(nextBtn);
-    
-    document.body.appendChild(controls);
-    
-    // Keep controls always visible for TV
-    controls.style.opacity = '1';
-    
-    // Show controls on any activity
-    const showControls = () => {
-        controls.style.opacity = '1';
-        controls.style.display = 'flex';
-    };
-    
-    document.addEventListener('mousemove', showControls);
-    document.addEventListener('keydown', showControls);
-    document.addEventListener('click', showControls);
-    
-    // Ensure controls stay visible
-    setInterval(showControls, 1000);
-    
-    // Update button visibility based on series
-    updateTVControlsVisibility();
-}
 
-function hideTVFullscreenControls() {
-    const controls = document.getElementById('tvFullscreenControls');
-    if (controls) {
-        controls.remove();
-    }
-}
 
-function updateTVControlsVisibility() {
-    const prevBtn = document.getElementById('tvPrevBtn');
-    const nextBtn = document.getElementById('tvNextBtn');
-    
-    if (prevBtn && nextBtn && currentSeries) {
-        prevBtn.style.display = currentVideoIndex > 0 ? 'block' : 'none';
-        nextBtn.style.display = currentVideoIndex < currentSeries.videos.length - 1 ? 'block' : 'none';
-    }
-}
+
+
+
+
 
 function showKeyboardFeedback(message) {
     // Remove existing feedback

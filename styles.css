@@ -718,7 +718,37 @@ body {
 #videoPlayer {
     width: 100% !important;
     height: 100% !important;
-    background: #000;
+    background: #000 !important;
+    background-image: none !important;
+    object-fit: contain;
+}
+
+/* Prevent broken file icons */
+#videoPlayer:empty::before,
+#videoPlayer[src=""]::before,
+#videoPlayer:not([src])::before {
+    content: none !important;
+    display: none !important;
+}
+
+#videoPlayer::before {
+    display: none !important;
+}
+
+/* Hide any broken image indicators */
+video {
+    background: #000 !important;
+    background-image: none !important;
+}
+
+video::-webkit-media-controls-overlay-play-button {
+    display: block !important;
+}
+
+video[poster=""],
+video:not([poster]) {
+    background: #000 !important;
+    background-image: none !important;
 }
 
 .video-loading {
