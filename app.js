@@ -22,7 +22,8 @@ app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            styleSrc: ["'self'", "'unsafe-inline'"],
+            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+            fontSrc: ["'self'", "https://fonts.gstatic.com"],
             scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-hashes'", "https://static.cloudflareinsights.com"],
             scriptSrcAttr: ["'unsafe-inline'"],
             mediaSrc: ["'self'", "data:", "blob:"],
@@ -53,6 +54,16 @@ const authLimiter = rateLimit({
 });
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static('.'));
+
+// PWA routes
+app.get('/manifest.json', (req, res) => {
+    res.sendFile(path.join(__dirname, 'manifest.json'));
+});
+
+app.get('/sw.js', (req, res) => {
+    res.setHeader('Content-Type', 'application/javascript');
+    res.sendFile(path.join(__dirname, 'sw.js'));
+});
 
 // IP anonymization function
 function anonymizeIP(ip) {
@@ -152,12 +163,7 @@ async function initializeUsers() {
             const data = fs.readFileSync(usersFile, 'utf8');
             users = JSON.parse(data);
             
-            // Ensure Magnus has adult access
-            const magnus = users.find(u => u.username === 'Magnus');
-            if (magnus && !magnus.adultAccess) {
-                magnus.adultAccess = true;
-                saveUsers();
-            }
+            // Magnus loaded successfully
         } catch (error) {
             console.error('Failed to load users file, starting fresh');
             users = [];
@@ -173,8 +179,7 @@ async function initializeUsers() {
             username: 'TVUser',
             password: hashedPassword,
             createdAt: new Date().toISOString(),
-            approved: true,
-            adultAccess: false
+            approved: true
         });
         saveUsers();
     }
@@ -519,14 +524,13 @@ app.post('/api/register',
         const hashedPassword = await bcrypt.hash(password, 12);
         
         if (username === 'Magnus') {
-            // Auto-approve Magnus with adult access
+            // Auto-approve Magnus
             const user = { 
                 id: crypto.randomUUID(), 
                 username, 
                 password: hashedPassword,
                 createdAt: new Date().toISOString(),
-                approved: true,
-                adultAccess: true
+                approved: true
             };
             users.push(user);
             saveUsers();
@@ -538,8 +542,7 @@ app.post('/api/register',
                 username, 
                 password: hashedPassword,
                 createdAt: new Date().toISOString(),
-                approved: false,
-                adultAccess: false
+                approved: false
             };
             pendingUsers.push(pendingUser);
             savePending();
@@ -572,8 +575,7 @@ app.post('/api/login',
                     username: username,
                     password: hashedPassword,
                     createdAt: new Date().toISOString(),
-                    approved: true,
-                    adultAccess: false
+                    approved: true
                 };
                 users.push(newTVUser);
                 saveUsers();
@@ -616,7 +618,7 @@ app.post('/api/login',
             maxAge: 24 * 60 * 60 * 1000 // 24 hours
         });
         
-        res.json({ token, username, adultAccess: user.adultAccess || false });
+        res.json({ token, username });
     }
 );
 
@@ -850,79 +852,7 @@ app.get('/api/series', auth, (req, res) => {
     }
 });
 
-// Get all series including adult content
-app.get('/api/series/adult', auth, (req, res) => {
-    try {
-        
-        if (!fs.existsSync(videosDir)) {
-            return res.json([]);
-        }
-        
-        const series = [];
-        
-        // Scan root videos directory (including adult)
-        const rootItems = fs.readdirSync(videosDir, { withFileTypes: true })
-            .filter(dirent => dirent.isDirectory());
-        
-        for (const item of rootItems) {
-            if (!validatePath(item.name)) continue;
-            
-            const itemPath = path.join(videosDir, item.name);
-            if (!fs.existsSync(itemPath)) continue;
-            
-            const files = fs.readdirSync(itemPath);
-            const videos = files.filter(f => f.match(/\.(mp4|webm|ogg|avi|mkv)$/i));
-            
-            if (videos.length > 0) {
-                const thumbnail = files.find(f => f.toLowerCase() === 'img' || f.startsWith('img.'));
-                series.push({
-                    id: item.name,
-                    title: item.name,
-                    genre: 'Root',
-                    thumbnail: thumbnail ? `/videos/${encodeURIComponent(item.name)}/${encodeURIComponent(thumbnail)}` : null,
-                    videoCount: videos.length,
-                    videos: videos.map(v => ({
-                        filename: v,
-                        url: `/videos/${encodeURIComponent(item.name)}/${encodeURIComponent(v)}`
-                    }))
-                });
-            } else {
-                const subItems = fs.readdirSync(itemPath, { withFileTypes: true })
-                    .filter(dirent => dirent.isDirectory());
-                
-                for (const subItem of subItems) {
-                    if (!validatePath(subItem.name)) continue;
-                    
-                    const subPath = path.join(itemPath, subItem.name);
-                    if (!fs.existsSync(subPath)) continue;
-                    
-                    const subFiles = fs.readdirSync(subPath);
-                    const subVideos = subFiles.filter(f => f.match(/\.(mp4|webm|ogg|avi|mkv)$/i));
-                    
-                    if (subVideos.length > 0) {
-                        const thumbnail = subFiles.find(f => f.toLowerCase() === 'img' || f.startsWith('img.'));
-                        series.push({
-                            id: `${item.name}/${subItem.name}`,
-                            title: subItem.name,
-                            genre: item.name,
-                            thumbnail: thumbnail ? `/videos/${encodeURIComponent(item.name)}/${encodeURIComponent(subItem.name)}/${encodeURIComponent(thumbnail)}` : null,
-                            videoCount: subVideos.length,
-                            videos: subVideos.map(v => ({
-                                filename: v,
-                                url: `/videos/${encodeURIComponent(item.name)}/${encodeURIComponent(subItem.name)}/${encodeURIComponent(v)}`
-                            }))
-                        });
-                    }
-                }
-            }
-        }
-        
-        res.json(series);
-    } catch (error) {
-        console.error('Adult series loading error:', error);
-        res.status(500).json({ error: 'Failed to load series' });
-    }
-});
+
 
 // Get series grouped by genre
 app.get('/api/genres', auth, (req, res) => {
@@ -1062,33 +992,7 @@ app.post('/api/logout', auth, async (req, res) => {
 
 
 
-// Adult page route with proper access control
-app.get('/adult', (req, res) => {
-    const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
-    
-    if (!token) {
-        return res.status(401).send('Authentication required');
-    }
-    
-    try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        
-        // Always allow Magnus
-        if (decoded.username === 'Magnus') {
-            return res.sendFile(path.join(__dirname, 'adult.html'));
-        }
-        
-        // Check other users for adult access
-        const user = users.find(u => u.username === decoded.username);
-        if (user && user.adultAccess) {
-            return res.sendFile(path.join(__dirname, 'adult.html'));
-        }
-        
-        res.status(403).send('Adult access denied');
-    } catch (error) {
-        res.status(401).send('Invalid token');
-    }
-});
+
 
 // Admin routes
 const ADMIN_USERNAMES = ['Magnus', 'Prayfran', 'Admin', 'test'];
@@ -1135,22 +1039,10 @@ app.delete('/api/admin/reject/:id', auth, adminAuth, (req, res) => {
 });
 
 app.get('/api/admin/users', auth, adminAuth, (req, res) => {
-    res.json(users.map(u => ({ id: u.id, username: u.username, createdAt: u.createdAt, adultAccess: u.adultAccess || false })));
+    res.json(users.map(u => ({ id: u.id, username: u.username, createdAt: u.createdAt })));
 });
 
-app.post('/api/admin/adult-access/:id', auth, adminAuth, (req, res) => {
-    const userId = req.params.id;
-    const { adultAccess } = req.body;
-    const userIndex = users.findIndex(u => u.id === userId);
-    
-    if (userIndex === -1) {
-        return res.status(404).json({ error: 'User not found' });
-    }
-    
-    users[userIndex].adultAccess = adultAccess;
-    saveUsers();
-    res.json({ message: 'Adult access updated' });
-});
+
 
 app.delete('/api/admin/users/:id', auth, adminAuth, (req, res) => {
     const userId = req.params.id;

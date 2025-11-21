@@ -8,7 +8,16 @@
     <meta http-equiv="Expires" content="0">
     <title>Majin Video Streams - Discover</title>
     <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
-    <link rel="stylesheet" href="styles.css?v=19">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Majin Streams">
+    <link rel="apple-touch-icon" href="/public/icon.jpg">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css?v=22">
+
 </head>
 <body>
     <header class="header">
@@ -26,7 +35,6 @@
                     <div id="searchResults" class="search-results"></div>
                 </div>
                 <button class="profile-btn" onclick="toggleAuth()" id="profileButton">👤 Login</button>
-                <button class="profile-btn" onclick="goToAdult()" id="adultButton" style="display:none">🔞 Adult</button>
                 <button class="profile-btn" onclick="goToAdmin()" id="adminButton" style="display:none">⚙️ Admin</button>
             </div>
         </div>
@@ -63,7 +71,7 @@
             <div id="loginForm">
                 <h3>Login</h3>
                 <input type="text" id="loginUsername" placeholder="Username" tabindex="0">
-                <input type="password" id="loginPassword" placeholder="Password" tabindex="0">
+                <input type="password" id="loginPassword" placeholder="Password" tabindex="0" onfocus="this.value=''">
                 <button onclick="login()">Login</button>
                 <button onclick="showQRLogin()" style="background:#333;margin-top:0.5rem;">📱 Login with QR Code</button>
                 <p>Don't have an account? <button type="button" onclick="showRegister()" style="background:none;border:none;color:#0066ff;text-decoration:underline;cursor:pointer;">Register</button></p>
@@ -125,15 +133,12 @@
                 <label>Audio Track:</label>
                 <select id="audioTrackSelect" onchange="switchAudioTrack()"></select>
             </div>
-            <div class="video-controls">
-                <button id="prevBtn" onclick="playPreviousVideo()" style="display:none" tabindex="0">⏮ Previous</button>
-                <button onclick="backToSeries()" tabindex="0">📋 Episodes</button>
-                <button onclick="goHome()" tabindex="0">🏠 Home</button>
-                <button id="nextBtn" onclick="playNextVideo()" style="display:none" tabindex="0">Next ⏭</button>
-            </div>
             <div class="video-info">
-                <h3 id="videoTitle"></h3>
-                <p id="videoDetails"></p>
+                <div class="title-row">
+                    <button onclick="backToSeries()" tabindex="0" class="episodes-btn" title="Episodes">☰</button>
+                    <h3 id="videoTitle"></h3>
+                </div>
+
             </div>
             <div id="videoDescription" class="video-description" style="margin-top: 1rem; color: #ccc; font-size: 0.9rem; line-height: 1.4;"></div>
         </div>
@@ -145,6 +150,14 @@
         </div>
     </footer>
 
-    <script src="script.js?t=1735686500"></script>
+    <script src="script.js?t=1735687300"></script>
+    <script>
+        // Register service worker for PWA
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js')
+                .then(() => console.log('SW registered'))
+                .catch(() => console.log('SW registration failed'));
+        }
+    </script>
 </body>
 </html>

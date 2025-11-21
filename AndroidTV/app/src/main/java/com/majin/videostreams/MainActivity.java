@@ -160,6 +160,7 @@ public class MainActivity extends Activity {
         
         // Add JavaScript interface for app control
         webView.addJavascriptInterface(new WebAppInterface(), "Android");
+        webView.addJavascriptInterface(new WebAppInterface(), "Mobile");
         
         // Clear cache but keep important data
         webView.clearCache(false);
@@ -215,7 +216,7 @@ public class MainActivity extends Activity {
                     "});", null);
                 
                 // Auto-login with stored credentials and apply video optimizations
-                if (url.contains("majinhackhost.win")) {
+                if (url.contains("magnushackhost.win")) {
                     if (!loginAttempted) {
                         loginAttempted = true;
                         performAutoLogin(view);

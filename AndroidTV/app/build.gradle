@@ -1,7 +1,7 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace 'com.magnus.videostreams'
+    namespace 'com.majin.videostreams'
     compileSdkVersion 34
     
     buildFeatures {
@@ -9,11 +9,11 @@ android {
     }
     
     defaultConfig {
-        applicationId "com.magnus.videostreams"
+        applicationId "com.majin.videostreams"
         minSdkVersion 21
         targetSdkVersion 34
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "1.1"
     }
     
     buildTypes {

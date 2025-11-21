@@ -4,6 +4,8 @@ class TizenWebViewApp {
         this.webview = document.getElementById('webview');
         this.loading = document.getElementById('loading');
         this.deviceId = this.tv.getDeviceId();
+        this.inactivityTimer = null;
+        this.INACTIVITY_TIMEOUT = 5 * 60 * 1000; // 5 minutes
         
         this.init();
     }
@@ -16,11 +18,15 @@ class TizenWebViewApp {
     setupEventListeners() {
         document.addEventListener('tvkey', (e) => {
             this.handleRemoteKey(e.detail.keyName);
+            this.resetInactivityTimer();
         });
         
         this.webview.addEventListener('load', () => {
             this.onWebViewLoaded();
         });
+        
+        // Start inactivity timer
+        this.startInactivityTimer();
     }
     
     loadWebsite() {
@@ -57,6 +63,16 @@ class TizenWebViewApp {
                         box-shadow: 0 0 20px rgba(0, 102, 255, 0.8) !important;
                     }
                     #exitBtn, #reloadBtn { display: block !important; }
+                    /* Video optimizations */
+                    #videoPlayer { 
+                        width: 100% !important; 
+                        height: 400px !important; 
+                        background: black !important; 
+                    } 
+                    .video-container { 
+                        height: 400px !important; 
+                        background: black !important; 
+                    }
                 \`;
                 document.head.appendChild(style);
                 
@@ -67,6 +83,37 @@ class TizenWebViewApp {
                     },
                     getDeviceId: function() {
                         return '${this.deviceId}';
+                    }
+                };
+                
+                // Add Mobile interface for mobile app compatibility
+                window.Mobile = {
+                    exitApp: function() {
+                        parent.postMessage({type: 'exit'}, '*');
+                    },
+                    getDeviceId: function() {
+                        return '${this.deviceId}';
+                    },
+                    saveCredentials: function(username, password) {
+                        // Tizen TV credential storage
+                        if (typeof tizen !== 'undefined' && tizen.preference) {
+                            try {
+                                tizen.preference.setValue('tv_username', username);
+                                tizen.preference.setValue('tv_password', password);
+                            } catch (e) {
+                                console.warn('Failed to save credentials:', e);
+                            }
+                        }
+                    },
+                    clearCredentials: function() {
+                        if (typeof tizen !== 'undefined' && tizen.preference) {
+                            try {
+                                tizen.preference.remove('tv_username');
+                                tizen.preference.remove('tv_password');
+                            } catch (e) {
+                                console.warn('Failed to clear credentials:', e);
+                            }
+                        }
                     }
                 };
                 
@@ -83,14 +130,56 @@ class TizenWebViewApp {
     
     performAutoLogin() {
         const loginScript = `
-            // Auto-login for TV
+            // Auto-login for TV with credential checking
             setTimeout(() => {
-                if (document.getElementById('loginUsername')) {
-                    document.getElementById('loginUsername').value = 'TV-${this.deviceId.substr(-8)}';
-                    document.getElementById('loginPassword').value = 'TVPass123!';
-                    setTimeout(() => {
-                        if (typeof login === 'function') login();
-                    }, 500);
+                // First check if already logged in with valid token
+                if (localStorage.getItem('authToken') && localStorage.getItem('currentUser')) {
+                    fetch('/api/series', { headers: { 'Authorization': 'Bearer ' + localStorage.getItem('authToken') } })
+                        .then(response => {
+                            if (response.ok) {
+                                console.log('Existing token valid, skipping login');
+                                if (typeof updateUI === 'function') updateUI();
+                                document.querySelector('main').style.display = 'block';
+                                if (typeof loadSeries === 'function') loadSeries();
+                                return;
+                            } else {
+                                console.log('Token invalid, proceeding with login');
+                                performTVLogin();
+                            }
+                        })
+                        .catch(() => performTVLogin());
+                } else {
+                    performTVLogin();
+                }
+                
+                function performTVLogin() {
+                    if (document.getElementById('loginUsername')) {
+                        // Try saved credentials first
+                        var savedUsername = '';
+                        var savedPassword = '';
+                        
+                        try {
+                            if (typeof tizen !== 'undefined' && tizen.preference) {
+                                savedUsername = tizen.preference.getValue('tv_username') || '';
+                                savedPassword = tizen.preference.getValue('tv_password') || '';
+                            }
+                        } catch (e) {
+                            console.warn('Failed to load saved credentials:', e);
+                        }
+                        
+                        if (savedUsername && savedPassword) {
+                            document.getElementById('loginUsername').value = savedUsername;
+                            document.getElementById('loginPassword').value = savedPassword;
+                        } else {
+                            // Use default TV credentials
+                            document.getElementById('loginUsername').value = 'TV-${this.deviceId.substr(-8)}';
+                            document.getElementById('loginPassword').value = 'TVPass123!';
+                        }
+                        
+                        setTimeout(() => {
+                            if (typeof login === 'function') login();
+                        }, 500);
+                    }
                 }
             }, 1000);
         `;
@@ -121,6 +210,9 @@ class TizenWebViewApp {
             return;
         }
         
+        // Reset inactivity timer on any key press
+        this.resetInactivityTimer();
+        
         const keyCode = keyEvent[keyName];
         if (keyCode) {
             try {
@@ -145,6 +237,44 @@ window.addEventListener('message', (event) => {
         }
     }
 });
+
+    startInactivityTimer() {
+        this.stopInactivityTimer();
+        this.inactivityTimer = setTimeout(() => {
+            // Check if video is playing before sleeping
+            try {
+                const isVideoPlaying = this.webview.contentWindow.eval(`
+                    (function() {
+                        var video = document.querySelector('video');
+                        return video && !video.paused && !video.ended;
+                    })()
+                `);
+                
+                if (!isVideoPlaying) {
+                    console.log('Inactivity timeout - exiting app');
+                    this.tv.exit();
+                } else {
+                    // Video is playing, restart timer
+                    this.startInactivityTimer();
+                }
+            } catch (e) {
+                // If we can't check video status, exit anyway
+                this.tv.exit();
+            }
+        }, this.INACTIVITY_TIMEOUT);
+    }
+    
+    stopInactivityTimer() {
+        if (this.inactivityTimer) {
+            clearTimeout(this.inactivityTimer);
+            this.inactivityTimer = null;
+        }
+    }
+    
+    resetInactivityTimer() {
+        this.startInactivityTimer();
+    }
+}
 
 // Initialize app when page loads
 window.addEventListener('load', () => {

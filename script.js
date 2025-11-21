@@ -5,6 +5,7 @@ let currentSeries = null;
 let currentVideoIndex = 0;
 let tvPlaybackActive = false;
 let tvPlaybackStarted = false;
+let consecutiveVideosPlayed = 0;
 
 // Clean up any existing state on page load
 window.addEventListener('beforeunload', () => {
@@ -154,7 +155,7 @@ async function autoLoginTV() {
         const data = await response.json();
         if (response.ok) {
             authToken = data.token;
-            currentUser = { username: data.username, adultAccess: data.adultAccess };
+            currentUser = { username: data.username };
             localStorage.setItem('authToken', authToken);
             localStorage.setItem('currentUser', JSON.stringify(currentUser));
             updateUI();
@@ -176,6 +177,8 @@ function toggleAuth() {
         logout();
     } else {
         document.getElementById('authModal').style.display = 'block';
+        // Clear password field when opening auth modal
+        document.getElementById('loginPassword').value = '';
     }
 }
 
@@ -193,6 +196,8 @@ function showLogin() {
         clearInterval(qrPollInterval);
         qrPollInterval = null;
     }
+    // Clear password field when showing login form
+    document.getElementById('loginPassword').value = '';
 }
 
 function showRegister() {
@@ -333,7 +338,7 @@ async function login() {
         const data = await response.json();
         if (response.ok) {
             authToken = data.token;
-            currentUser = { username: data.username, adultAccess: data.adultAccess };
+            currentUser = { username: data.username };
             localStorage.setItem('authToken', authToken);
             localStorage.setItem('currentUser', JSON.stringify(currentUser));
             
@@ -416,7 +421,6 @@ function logout() {
 function updateUI() {
     const profileBtn = document.querySelector('.profile-btn');
     const adminBtn = document.getElementById('adminButton');
-    const adultBtn = document.getElementById('adultButton');
     
     if (currentUser) {
         profileBtn.textContent = `👤 ${currentUser.username} (Logout)`;
@@ -425,28 +429,15 @@ function updateUI() {
         if (currentUser.username === 'Magnus' || currentUser.username === 'Prayfran' || currentUser.username === 'Admin' || currentUser.username === 'test') {
             adminBtn.style.display = 'inline-block';
         }
-        
-        if (currentUser.adultAccess || currentUser.username === 'Magnus' || currentUser.username === 'Prayfran' || currentUser.username === 'Admin' || currentUser.username === 'test') {
-            adultBtn.style.display = 'inline-block';
-        }
     } else {
         profileBtn.textContent = '👤 Login';
         profileBtn.style.backgroundColor = '#333';
         adminBtn.style.display = 'none';
-        adultBtn.style.display = 'none';
     }
 }
 
 function goToAdmin() {
     window.location.href = '/admin';
-}
-
-function goToAdult() {
-    if (!authToken) {
-        alert('Please login first');
-        return;
-    }
-    window.location.href = `/adult?token=${encodeURIComponent(authToken)}`;
 }
 
 // Series functionality
@@ -648,14 +639,6 @@ function createSeriesCard(series, showProgress = false) {
     
     // Ensure click handler works on TV
     card.style.cursor = 'pointer';
-    card.addEventListener('click', (e) => {
-        console.log('Card clicked:', series.title);
-        e.stopPropagation();
-        // Force the onclick to execute
-        if (card.onclick) {
-            card.onclick(e);
-        }
-    });
     
     let lastWatchedEpisode = null;
     
@@ -675,7 +658,9 @@ function createSeriesCard(series, showProgress = false) {
                 // Continue watching: play last watched video directly
                 card.onclick = async (e) => {
                     const videoIndex = series.videos.indexOf(video);
-                    if (!video) return;
+                    if (!video) {
+                        return;
+                    }
                     
                     try {
                         const response = await fetch(`/api/series/${series.id}`, {
@@ -693,21 +678,25 @@ function createSeriesCard(series, showProgress = false) {
                     playVideo(video.url, video.filename, video.title || video.filename.replace(/\.[^/.]+$/, ""), videoIndex);
                 };
             } else {
-                card.onclick = () => openSeries(series);
+                card.onclick = () => {
+                    openSeries(series);
+                };
             }
         } else {
-            card.onclick = () => openSeries(series);
+            card.onclick = () => {
+                openSeries(series);
+            };
         }
     } else {
-        card.onclick = () => openSeries(series);
+        card.onclick = () => {
+            openSeries(series);
+        };
     }
     
     // Add keyboard support for TV
     card.addEventListener('keydown', (e) => {
-        console.log('Card keydown:', e.key, 'on card:', series.title);
         if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            console.log('Enter/Space on card, triggering click');
             card.click();
         }
     });
@@ -783,6 +772,12 @@ function showSeriesModal(series) {
     const modal = document.getElementById('seriesModal');
     const title = document.getElementById('seriesTitle');
     const videoList = document.getElementById('videoList');
+    
+    // Reset modal visibility
+    modal.style.display = 'block';
+    modal.style.visibility = 'visible';
+    modal.style.zIndex = '2100';
+    
     title.textContent = series.title;
     
     // Clear video list
@@ -857,12 +852,130 @@ function showSeriesModal(series) {
     }, 100);
 }
 
+function showKeepWatchingPrompt(wasFullscreen) {
+    const overlay = document.createElement('div');
+    overlay.id = 'keepWatchingOverlay';
+    overlay.style.cssText = `
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        background: rgba(0,0,0,0.9) !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: center !important;
+        align-items: center !important;
+        z-index: 2147483647 !important;
+        color: white !important;
+        font-family: Arial, sans-serif !important;
+    `;
+    
+    overlay.innerHTML = `
+        <div style="text-align: center; padding: 40px; background: rgba(0,0,0,0.8); border-radius: 10px; border: 2px solid #0066ff;">
+            <div style="font-size: 48px; margin-bottom: 20px;">⏸️</div>
+            <div style="font-size: 24px; margin-bottom: 15px;">Still watching?</div>
+            <div style="font-size: 16px; color: #ccc; margin-bottom: 30px;">You've watched 10 episodes in a row</div>
+            <div style="display: flex; gap: 20px; justify-content: center;">
+                <button onclick="continueWatching(${wasFullscreen})" 
+                        style="background: #0066ff; color: white; border: none; padding: 15px 30px; border-radius: 8px; font-size: 18px; cursor: pointer;" 
+                        tabindex="0" id="continueBtn">Continue Watching</button>
+                <button onclick="stopWatching()" 
+                        style="background: #666; color: white; border: none; padding: 15px 30px; border-radius: 8px; font-size: 18px; cursor: pointer;" 
+                        tabindex="0">Stop</button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(overlay);
+    
+    // Auto-focus continue button
+    setTimeout(() => {
+        const continueBtn = document.getElementById('continueBtn');
+        if (continueBtn) continueBtn.focus();
+    }, 100);
+    
+    // Auto-continue after 30 seconds
+    setTimeout(() => {
+        if (document.getElementById('keepWatchingOverlay')) {
+            continueWatching(wasFullscreen);
+        }
+    }, 30000);
+}
+
+function continueWatching(wasFullscreen) {
+    const overlay = document.getElementById('keepWatchingOverlay');
+    if (overlay) overlay.remove();
+    
+    consecutiveVideosPlayed = 0; // Reset counter
+    playNextVideo();
+    if (wasFullscreen) {
+        setTimeout(() => toggleFullscreen(document.getElementById('videoPlayer')), 500);
+    }
+}
+
+function stopWatching() {
+    const overlay = document.getElementById('keepWatchingOverlay');
+    if (overlay) overlay.remove();
+    
+    consecutiveVideosPlayed = 0; // Reset counter
+    goHome();
+}
+
+function addControlsToFullscreenElement(fsElement) {
+    // Remove any existing controls
+    const existing = fsElement.querySelector('#fsControls');
+    if (existing) existing.remove();
+    
+    // Create controls directly in the fullscreen element
+    const controls = document.createElement('div');
+    controls.id = 'fsControls';
+    controls.style.cssText = `
+        position: absolute !important;
+        bottom: 60px !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        display: flex !important;
+        gap: 20px !important;
+        z-index: 999999 !important;
+        background: rgba(255,0,0,0.9) !important;
+        padding: 20px !important;
+        border-radius: 12px !important;
+        border: 3px solid #ffff00 !important;
+    `;
+    
+    // Create buttons
+    const buttons = [
+        { text: '⏮', action: () => playPreviousVideo() },
+        { text: '🏠', action: () => goHome() },
+        { text: '⏭', action: () => playNextVideo() }
+    ];
+    
+    buttons.forEach(btn => {
+        const button = document.createElement('button');
+        button.innerHTML = btn.text;
+        button.onclick = btn.action;
+        button.style.cssText = `
+            background: #0000ff !important;
+            color: white !important;
+            border: none !important;
+            padding: 15px 20px !important;
+            border-radius: 8px !important;
+            font-size: 24px !important;
+            cursor: pointer !important;
+        `;
+        controls.appendChild(button);
+    });
+    
+    fsElement.appendChild(controls);
+}
+
 function playVideo(url, filename, title, videoIndex = null) {
     try {
     const modal = document.getElementById('videoModal');
     const player = document.getElementById('videoPlayer');
     const videoTitle = document.getElementById('videoTitle');
-    const details = document.getElementById('videoDetails');
+    // Removed details element reference since it was deleted from HTML
     
     if (videoIndex !== null) {
         currentVideoIndex = videoIndex;
@@ -870,7 +983,8 @@ function playVideo(url, filename, title, videoIndex = null) {
     
     // Detect device type
     const userAgent = navigator.userAgent || '';
-    const isTV = /Smart-TV|Tizen|WebOS|Android TV|BRAVIA|Samsung|LG webOS|wv/i.test(userAgent);
+    const isTV = /Smart-TV|Tizen|WebOS|Android TV|BRAVIA|Samsung|LG webOS/i.test(userAgent) || (navigator.userAgent.includes('wv') && typeof Android !== 'undefined');
+    const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent) && !isTV;
     
     // Reset player and show loading - remove any poster to prevent broken icon
     player.src = '';
@@ -891,8 +1005,15 @@ function playVideo(url, filename, title, videoIndex = null) {
         loadingDiv.style.display = 'none';
     };
     
-    videoTitle.textContent = title;
-    details.textContent = currentSeries ? currentSeries.title : '';
+    // Show modal first to ensure elements exist
+    if (!isTV || tvPlaybackActive) {
+        modal.style.cssText = 'display: block !important; visibility: visible !important; opacity: 1 !important; z-index: 2200 !important;';
+    }
+    
+    if (videoTitle) {
+        videoTitle.textContent = title;
+    }
+    // Removed details.textContent since we removed the videoDetails element
     
     // Load video description
     loadVideoDescription(title);
@@ -912,6 +1033,15 @@ function playVideo(url, filename, title, videoIndex = null) {
         player.setAttribute('webkit-playsinline', 'true');
         player.muted = false;
         // Disable autoplay for TV
+        player.removeAttribute('autoplay');
+        enableFullscreenSupport(player);
+    }
+    
+    if (isMobile) {
+        player.setAttribute('webkit-playsinline', 'true');
+        player.setAttribute('playsinline', 'true');
+        player.muted = false;
+        // Disable autoplay for mobile
         player.removeAttribute('autoplay');
         enableFullscreenSupport(player);
     }
@@ -1104,6 +1234,8 @@ function playVideo(url, filename, title, videoIndex = null) {
             // Permanently remove all TV overlays
             hideTVLoadingOverlay();
         }
+        
+        // Remote control shortcuts active: Home=Home, H=Home, N=Next, B=Previous, Channel+/-=Next/Previous, P=Play/Pause, F=Fullscreen
     });
     
     player.addEventListener('waiting', () => {
@@ -1162,26 +1294,70 @@ function playVideo(url, filename, title, videoIndex = null) {
         player.ontimeupdate = () => saveProgress(filename, player.currentTime, player.duration);
         player.onended = () => {
             saveProgress(filename, player.duration, player.duration, true);
-            playNextVideo();
+            consecutiveVideosPlayed++;
+            const wasFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+            const isTV = navigator.userAgent.includes('wv') || navigator.userAgent.includes('Android TV');
+            
+            if (currentSeries && currentVideoIndex < currentSeries.videos.length - 1) {
+                if (consecutiveVideosPlayed >= 10) {
+                    showKeepWatchingPrompt(wasFullscreen);
+                } else {
+                    playNextVideo();
+                    if (wasFullscreen) {
+                        setTimeout(() => toggleFullscreen(document.getElementById('videoPlayer')), 500);
+                    }
+                }
+            } else if (isTV) {
+                // Last video in series - go home after delay
+                setTimeout(() => goHome(), 2000);
+            }
         };
     } else {
-        player.onended = () => playNextVideo();
+        player.onended = () => {
+            consecutiveVideosPlayed++;
+            const wasFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+            const isTV = navigator.userAgent.includes('wv') || navigator.userAgent.includes('Android TV');
+            
+            if (currentSeries && currentVideoIndex < currentSeries.videos.length - 1) {
+                if (consecutiveVideosPlayed >= 10) {
+                    showKeepWatchingPrompt(wasFullscreen);
+                } else {
+                    playNextVideo();
+                    if (wasFullscreen) {
+                        setTimeout(() => toggleFullscreen(document.getElementById('videoPlayer')), 500);
+                    }
+                }
+            } else if (isTV) {
+                // Last video in series - go home after delay
+                setTimeout(() => goHome(), 2000);
+            }
+        };
     }
     
-    // For TV: show loading overlay only if playback hasn't started, for others show modal
-    if (isTV && !tvPlaybackActive) {
+    // For TV and Mobile: show loading overlay, for desktop show modal
+    if ((isTV && !tvPlaybackActive) || (isMobile && !tvPlaybackActive)) {
         modal.style.display = 'none';
-        showTVLoadingOverlay(title);
+        if (isTV) {
+            showTVLoadingOverlay(title);
+        } else {
+            showMobileLoadingOverlay(title);
+        }
         // Show play button after 2 seconds
         tvButtonTimeout = setTimeout(() => {
             if (!tvPlaybackStarted) {
-                showTVPlayButton();
+                if (isTV) {
+                    showTVPlayButton();
+                } else {
+                    showMobilePlayButton();
+                }
             }
         }, 2000);
     } else {
-        modal.style.display = 'block';
+        // Force show modal for desktop browsers
+        modal.style.cssText = 'display: block !important; visibility: visible !important; opacity: 1 !important; z-index: 2200 !important;';
     }
     document.getElementById('seriesModal').style.display = 'none';
+    document.getElementById('seriesModal').style.visibility = 'hidden';
     
     } catch (error) {
         console.error('Video playback error:', error);
@@ -1194,9 +1370,9 @@ function playVideo(url, filename, title, videoIndex = null) {
 
 // TV-specific fullscreen support
 function enableFullscreenSupport(player) {
-    // Add fullscreen button to video controls
+    // Add fullscreen button to audio controls area
     const videoModal = document.getElementById('videoModal');
-    const controlsDiv = videoModal.querySelector('.video-controls');
+    const audioControlsDiv = videoModal.querySelector('.audio-controls');
     
     // Remove existing fullscreen button and recreate for TV
     const existingBtn = document.getElementById('fullscreenBtn');
@@ -1204,13 +1380,15 @@ function enableFullscreenSupport(player) {
         existingBtn.remove();
     }
     
-    const fullscreenBtn = document.createElement('button');
-    fullscreenBtn.id = 'fullscreenBtn';
-    fullscreenBtn.textContent = '⛶ Fullscreen';
-    fullscreenBtn.tabIndex = 0;
-    fullscreenBtn.onclick = () => toggleFullscreen(player);
-    controlsDiv.insertBefore(fullscreenBtn, controlsDiv.firstChild);
-    // Debug disabled
+    if (audioControlsDiv) {
+        const fullscreenBtn = document.createElement('button');
+        fullscreenBtn.id = 'fullscreenBtn';
+        fullscreenBtn.textContent = '⛶ Fullscreen';
+        fullscreenBtn.tabIndex = 0;
+        fullscreenBtn.onclick = () => toggleFullscreen(player);
+        fullscreenBtn.style.cssText = 'margin-top: 10px; padding: 8px 16px; background: #0066ff; color: white; border: none; border-radius: 4px; cursor: pointer;';
+        audioControlsDiv.appendChild(fullscreenBtn);
+    }
     
     // Handle fullscreen changes - only set once to avoid multiple handlers
     if (!document.fullscreenHandlerSet) {
@@ -1222,9 +1400,26 @@ function enableFullscreenSupport(player) {
                 btn.onclick = () => toggleFullscreen(document.getElementById('videoPlayer'));
             }
             
+            // Recreate overlay controls when entering/exiting fullscreen
+            if (isFullscreen) {
+                setTimeout(() => {
+                    const fsElement = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+                    if (fsElement) {
+                        addControlsToFullscreenElement(fsElement);
+                    }
+                }, 500);
+            } else {
+                setTimeout(() => showVideoOverlayControls(), 100);
+            }
+            
             const isTV = navigator.userAgent.includes('wv') || navigator.userAgent.includes('Android TV');
+            const player = document.getElementById('videoPlayer');
+            if (isTV && !isFullscreen && player && player.ended) {
+                // Don't go home if video just ended - let auto-play handle it
+                return;
+            }
             if (isTV && !isFullscreen) {
-                // Reset flags immediately when exiting fullscreen
+                // Reset flags when manually exiting fullscreen
                 tvPlaybackActive = false;
                 tvPlaybackStarted = false;
                 goHome();
@@ -1312,6 +1507,102 @@ async function saveProgress(filename, currentTime, duration, completed = false) 
     }
 }
 
+function createFullscreenOverlay() {
+    // Remove any existing fullscreen overlay
+    const existing = document.getElementById('fullscreenVideoOverlay');
+    if (existing) existing.remove();
+    
+    // Create overlay that covers the entire screen
+    const overlay = document.createElement('div');
+    overlay.id = 'fullscreenVideoOverlay';
+    overlay.style.cssText = `
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        pointer-events: none !important;
+        z-index: 2147483647 !important;
+    `;
+    
+    // Create controls container
+    const controls = document.createElement('div');
+    controls.style.cssText = `
+        position: absolute !important;
+        bottom: 80px !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        display: flex !important;
+        gap: 20px !important;
+        pointer-events: auto !important;
+        background: rgba(0,0,0,0.9) !important;
+        padding: 20px 30px !important;
+        border-radius: 15px !important;
+        border: 3px solid #0066ff !important;
+        box-shadow: 0 0 30px rgba(0,102,255,1) !important;
+    `;
+    
+    // Create buttons
+    const buttons = [
+        { text: '⏮', action: () => playPreviousVideo(), id: 'fsOverlayPrev' },
+        { text: '🏠', action: () => goHome(), id: 'fsOverlayHome' },
+        { text: '⏭', action: () => playNextVideo(), id: 'fsOverlayNext' }
+    ];
+    
+    buttons.forEach(btn => {
+        const button = document.createElement('button');
+        button.innerHTML = btn.text;
+        button.onclick = btn.action;
+        button.id = btn.id;
+        button.style.cssText = `
+            background: rgba(0,102,255,0.9) !important;
+            color: white !important;
+            border: 2px solid #fff !important;
+            padding: 15px 20px !important;
+            border-radius: 10px !important;
+            font-size: 24px !important;
+            cursor: pointer !important;
+            pointer-events: auto !important;
+            min-width: 60px !important;
+        `;
+        controls.appendChild(button);
+    });
+    
+    overlay.appendChild(controls);
+    document.body.appendChild(overlay);
+    
+    // Auto-hide functionality
+    let hideTimeout;
+    const showControls = () => {
+        controls.style.opacity = '1';
+        clearTimeout(hideTimeout);
+        hideTimeout = setTimeout(() => {
+            controls.style.opacity = '0.3';
+        }, 4000);
+    };
+    
+    document.addEventListener('mousemove', showControls);
+    document.addEventListener('keydown', showControls);
+    
+    // Update button visibility
+    const prevBtn = document.getElementById('fsOverlayPrev');
+    const nextBtn = document.getElementById('fsOverlayNext');
+    if (currentSeries) {
+        prevBtn.style.display = currentVideoIndex > 0 ? 'block' : 'none';
+        nextBtn.style.display = currentVideoIndex < currentSeries.videos.length - 1 ? 'block' : 'none';
+    }
+    
+    showControls();
+}
+
+function showVideoOverlayControls() {
+    // No overlay controls - use remote buttons only
+}
+
+function updateOverlayControlsVisibility() {
+    // No overlay controls - using remote buttons only
+}
+
 function closeVideo() {
     const modal = document.getElementById('videoModal');
     const player = document.getElementById('videoPlayer');
@@ -1344,8 +1635,13 @@ function closeVideo() {
     player.oncanplay = null;
     player.onloadedmetadata = null;
     
-    // Remove all TV overlays
+    // Remove all overlays
     hideTVLoadingOverlay();
+    hideMobileLoadingOverlay();
+    const overlayControls = document.getElementById('videoOverlayControls');
+    if (overlayControls) overlayControls.remove();
+    const fsOverlay = document.getElementById('fullscreenVideoOverlay');
+    if (fsOverlay) fsOverlay.remove();
     
     modal.style.display = 'none';
 }
@@ -1371,20 +1667,15 @@ async function backToSeries() {
 }
 
 function updateVideoControls() {
-    const prevBtn = document.getElementById('prevBtn');
-    const nextBtn = document.getElementById('nextBtn');
-    
-    if (currentSeries && currentSeries.videos) {
-        prevBtn.style.display = currentVideoIndex > 0 ? 'inline-block' : 'none';
-        nextBtn.style.display = currentVideoIndex < currentSeries.videos.length - 1 ? 'inline-block' : 'none';
-    } else {
-        prevBtn.style.display = 'none';
-        nextBtn.style.display = 'none';
-    }
+    // No video controls to update - using remote buttons only
 }
 
 function playPreviousVideo() {
     if (currentSeries && currentVideoIndex > 0) {
+        // Reset TV playback flags to trigger loading modal flow
+        tvPlaybackActive = false;
+        tvPlaybackStarted = false;
+        
         const prevVideo = currentSeries.videos[currentVideoIndex - 1];
         playVideo(prevVideo.url, prevVideo.filename, prevVideo.title, currentVideoIndex - 1);
     }
@@ -1392,6 +1683,10 @@ function playPreviousVideo() {
 
 function playNextVideo() {
     if (currentSeries && currentVideoIndex < currentSeries.videos.length - 1) {
+        // Reset TV playback flags to trigger loading modal flow
+        tvPlaybackActive = false;
+        tvPlaybackStarted = false;
+        
         const nextVideo = currentSeries.videos[currentVideoIndex + 1];
         playVideo(nextVideo.url, nextVideo.filename, nextVideo.title, currentVideoIndex + 1);
     }
@@ -1431,7 +1726,10 @@ function switchAudioTrack() {
 }
 
 function closeSeries() {
-    document.getElementById('seriesModal').style.display = 'none';
+    const seriesModal = document.getElementById('seriesModal');
+    seriesModal.style.display = 'none';
+    seriesModal.style.visibility = 'hidden';
+    seriesModal.style.zIndex = '-1';
 }
 
 function goHome() {
@@ -1441,6 +1739,7 @@ function goHome() {
     // Reset TV playback flags completely
     tvPlaybackActive = false;
     tvPlaybackStarted = false;
+    consecutiveVideosPlayed = 0; // Reset counter
     
     // Stop video to prevent background playback
     if (player) {
@@ -1448,13 +1747,16 @@ function goHome() {
         player.src = '';
     }
     
-    // Aggressively remove ALL TV overlays and elements
+    // Aggressively remove ALL TV and Mobile overlays and elements
     const elementsToRemove = [
         'tvLoadingOverlay',
         'tvPlayOverlay',
         'tvBlackScreen',
         'tvFullscreenControls',
+        'mobileLoadingOverlay',
+        'mobilePlayOverlay',
         ...Array.from(document.querySelectorAll('[id*="tv"][id*="verlay"]')),
+        ...Array.from(document.querySelectorAll('[id*="mobile"][id*="verlay"]')),
         ...Array.from(document.querySelectorAll('[style*="position:fixed"][style*="z-index"]'))
     ];
     
@@ -1470,20 +1772,8 @@ function goHome() {
     videoModal.style.display = 'none';
     document.getElementById('seriesModal').style.display = 'none';
     
-    // Reset navigation state completely
-    currentSwimlaneIndex = -1;
+    // Reset current series only
     currentSeries = null;
-    
-    // Clear any focused states
-    document.querySelectorAll('.card-focused, .swimlane-focused').forEach(el => {
-        el.classList.remove('card-focused', 'swimlane-focused');
-    });
-    
-    // NUCLEAR OPTION: Completely reload series data and recreate all cards
-    setTimeout(() => {
-        console.log('Nuclear reset: Reloading all series data');
-        loadSeries(); // This will completely recreate all cards with fresh event handlers
-    }, 100);
 }
 
 // TV navigation state
@@ -1581,8 +1871,10 @@ document.addEventListener('keydown', (event) => {
     
     // Skip TV overlay controls entirely if playback has started
     if (!tvPlaybackStarted) {
-        // Handle TV play overlay controls (only if overlay exists and is visible)
+        // Handle TV and Mobile play overlay controls
         const tvPlayOverlay = document.getElementById('tvPlayOverlay');
+        const mobilePlayOverlay = document.getElementById('mobilePlayOverlay');
+        
         if (tvPlayOverlay && tvPlayOverlay.style.display !== 'none' && document.body.contains(tvPlayOverlay)) {
             switch(event.key) {
                 case 'Enter':
@@ -1599,8 +1891,26 @@ document.addEventListener('keydown', (event) => {
             return;
         }
         
-        // Handle TV loading overlay controls (only if overlay exists and is visible)
+        if (mobilePlayOverlay && mobilePlayOverlay.style.display !== 'none' && document.body.contains(mobilePlayOverlay)) {
+            switch(event.key) {
+                case 'Enter':
+                case ' ':
+                    event.preventDefault();
+                    startMobilePlayback();
+                    break;
+                case 'Escape':
+                case 'Backspace':
+                    event.preventDefault();
+                    goHome();
+                    break;
+            }
+            return;
+        }
+        
+        // Handle TV and Mobile loading overlay controls
         const tvLoadingOverlay = document.getElementById('tvLoadingOverlay');
+        const mobileLoadingOverlay = document.getElementById('mobileLoadingOverlay');
+        
         if (tvLoadingOverlay && tvLoadingOverlay.style.display !== 'none' && document.body.contains(tvLoadingOverlay)) {
             switch(event.key) {
                 case 'Enter':
@@ -1610,6 +1920,22 @@ document.addEventListener('keydown', (event) => {
                     if (playBtn) {
                         startTVPlayback();
                     }
+                    break;
+                case 'Escape':
+                case 'Backspace':
+                    event.preventDefault();
+                    goHome();
+                    break;
+            }
+            return;
+        }
+        
+        if (mobileLoadingOverlay && mobileLoadingOverlay.style.display !== 'none' && document.body.contains(mobileLoadingOverlay)) {
+            switch(event.key) {
+                case 'Enter':
+                case ' ':
+                    event.preventDefault();
+                    startMobilePlayback();
                     break;
                 case 'Escape':
                 case 'Backspace':
@@ -1699,11 +2025,21 @@ document.addEventListener('keydown', (event) => {
                 break;
             case 'Escape':
             case 'Backspace':
+            case 'GoBack':
+            case 'Home':
                 event.preventDefault();
                 const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
                 const isTV = navigator.userAgent.includes('wv') || navigator.userAgent.includes('Android TV');
                 
-                if (isFullscreen) {
+                if (event.key === 'Home' || (isFullscreen && (event.key === 'Escape' || event.key === 'Backspace'))) {
+                    if (isFullscreen) {
+                        if (document.exitFullscreen) document.exitFullscreen();
+                        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+                        else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
+                        else if (document.msExitFullscreen) document.msExitFullscreen();
+                    }
+                    goHome();
+                } else if (isFullscreen) {
                     if (document.exitFullscreen) document.exitFullscreen();
                     else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
                     else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
@@ -1722,6 +2058,28 @@ document.addEventListener('keydown', (event) => {
                     event.preventDefault();
                     toggleFullscreen(player);
                 }
+                break;
+            case 'h':
+            case 'H':
+                event.preventDefault();
+                goHome();
+                break;
+            case 'n':
+            case 'N':
+                event.preventDefault();
+                playNextVideo();
+                break;
+            case 'b':
+            case 'B':
+            case 'ChannelDown':
+            case '-':
+                event.preventDefault();
+                playPreviousVideo();
+                break;
+            case '+':
+            case 'ChannelUp':
+                event.preventDefault();
+                playNextVideo();
                 break;
 
         }
@@ -1905,6 +2263,134 @@ async function loadVideoDescription(title) {
         descriptionDiv.innerHTML = `<p>${data.description}</p>`;
     } catch (error) {
         descriptionDiv.innerHTML = '';
+    }
+}
+
+// Mobile Loading Overlay Functions
+function showMobileLoadingOverlay(title) {
+    const overlay = document.createElement('div');
+    overlay.id = 'mobileLoadingOverlay';
+    overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: #000;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 10000;
+        color: white;
+        font-family: Arial, sans-serif;
+    `;
+    
+    overlay.innerHTML = `
+        <div style="font-size: 48px; margin-bottom: 30px;">📱</div>
+        <div style="font-size: 24px; margin-bottom: 20px;">Loading Video</div>
+        <div style="font-size: 18px; color: #0066ff; margin-bottom: 30px;">${title}</div>
+        <div style="width: 60px; height: 60px; border: 4px solid #333; border-top: 4px solid #0066ff; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+        <style>
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+        </style>
+    `;
+    
+    document.body.appendChild(overlay);
+}
+
+function showMobilePlayButton() {
+    // Hide the original loading overlay first
+    const originalOverlay = document.getElementById('mobileLoadingOverlay');
+    if (originalOverlay) {
+        originalOverlay.style.display = 'none';
+    }
+    
+    // Create mobile play overlay
+    const newOverlay = document.createElement('div');
+    newOverlay.id = 'mobilePlayOverlay';
+    newOverlay.style.cssText = `
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        background: rgba(0,0,0,0.95) !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: center !important;
+        align-items: center !important;
+        z-index: 999999 !important;
+        color: white !important;
+        font-family: Arial, sans-serif !important;
+    `;
+    
+    const title = document.getElementById('videoTitle')?.textContent || 'Video';
+    
+    newOverlay.innerHTML = `
+        <div style="font-size: 48px; margin-bottom: 20px;">📱</div>
+        <div style="font-size: 24px; margin-bottom: 15px; color: white;">${title}</div>
+        <div style="font-size: 16px; color: #ccc; margin-bottom: 30px;">Ready to play</div>
+        <div style="display: flex; gap: 30px; align-items: center;">
+            <button onclick="startMobilePlayback()" 
+                    style="background: #0066ff !important; color: white !important; border: none !important; 
+                           width: 80px !important; height: 80px !important; border-radius: 50% !important; 
+                           font-size: 30px !important; cursor: pointer !important; 
+                           box-shadow: 0 4px 15px rgba(0,102,255,0.3), 0 0 0 4px rgba(135,206,250,0.6) !important; 
+                           display: flex !important; align-items: center !important; justify-content: center !important; 
+                           transition: box-shadow 0.2s ease !important;" 
+                    id="mobilePlayBtn">
+                ▶
+            </button>
+            <button onclick="goHome()" 
+                    style="background: #666 !important; color: white !important; border: none !important; 
+                           width: 60px !important; height: 60px !important; border-radius: 50% !important; 
+                           font-size: 20px !important; cursor: pointer !important; 
+                           display: flex !important; align-items: center !important; justify-content: center !important;" 
+                    id="mobileCancelBtn">
+                ✕
+            </button>
+        </div>
+    `;
+    
+    document.body.appendChild(newOverlay);
+}
+
+function startMobilePlayback() {
+    const player = document.getElementById('videoPlayer');
+    const modal = document.getElementById('videoModal');
+    
+    // Remove mobile overlays
+    const elementsToRemove = ['mobileLoadingOverlay', 'mobilePlayOverlay'];
+    elementsToRemove.forEach(id => {
+        const element = document.getElementById(id);
+        if (element) element.remove();
+    });
+    
+    // Show modal for mobile
+    modal.style.display = 'block';
+    modal.style.cssText = 'display: block !important; visibility: visible !important; opacity: 1 !important; z-index: 2200 !important;';
+    
+    // Start playback and attempt fullscreen
+    player.play().then(() => {
+        // Try to go fullscreen after play starts
+        setTimeout(() => {
+            toggleFullscreen(player);
+        }, 500);
+    }).catch(console.error);
+}
+
+function hideMobileLoadingOverlay() {
+    const overlay = document.getElementById('mobileLoadingOverlay');
+    if (overlay) {
+        overlay.remove();
+    }
+    const playOverlay = document.getElementById('mobilePlayOverlay');
+    if (playOverlay) {
+        playOverlay.remove();
     }
 }
 
@@ -2226,6 +2712,90 @@ function updateTVControlsVisibility() {
         prevBtn.style.display = currentVideoIndex > 0 ? 'block' : 'none';
         nextBtn.style.display = currentVideoIndex < currentSeries.videos.length - 1 ? 'block' : 'none';
     }
+}
+
+function showKeyboardFeedback(message) {
+    // Remove existing feedback
+    const existing = document.getElementById('keyboardFeedback');
+    if (existing) existing.remove();
+    
+    // Create feedback element
+    const feedback = document.createElement('div');
+    feedback.id = 'keyboardFeedback';
+    feedback.textContent = message;
+    feedback.style.cssText = `
+        position: fixed !important;
+        top: 50% !important;
+        left: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        background: rgba(0,102,255,0.95) !important;
+        color: white !important;
+        padding: 20px 40px !important;
+        border-radius: 15px !important;
+        font-size: 24px !important;
+        font-weight: bold !important;
+        z-index: 2147483647 !important;
+        border: 3px solid white !important;
+        box-shadow: 0 0 30px rgba(0,102,255,0.8) !important;
+        pointer-events: none !important;
+    `;
+    
+    document.body.appendChild(feedback);
+    
+    // Auto-remove after 1.5 seconds
+    setTimeout(() => {
+        if (feedback && feedback.parentNode) {
+            feedback.remove();
+        }
+    }, 1500);
+}
+
+function showTVKeyboardHelp() {
+    const isTV = navigator.userAgent.includes('wv') || navigator.userAgent.includes('Android TV');
+    if (!isTV) return;
+    
+    const help = document.createElement('div');
+    help.id = 'tvKeyboardHelp';
+    help.style.cssText = `
+        position: fixed !important;
+        top: 20px !important;
+        right: 20px !important;
+        background: rgba(0,0,0,0.9) !important;
+        color: white !important;
+        padding: 15px !important;
+        border-radius: 10px !important;
+        font-size: 16px !important;
+        z-index: 1000000 !important;
+        border: 2px solid #0066ff !important;
+        pointer-events: none !important;
+    `;
+    
+    help.innerHTML = `
+        <div style="font-weight: bold; margin-bottom: 8px; color: #0066ff;">TV Remote Controls:</div>
+        <div>H = Home</div>
+        <div>N = Next Video</div>
+        <div>B = Previous Video</div>
+        <div>P = Play/Pause</div>
+        <div>F = Fullscreen</div>
+    `;
+    
+    document.body.appendChild(help);
+    
+    // Auto-hide after 8 seconds
+    setTimeout(() => {
+        if (help && help.parentNode) {
+            help.style.opacity = '0.3';
+        }
+    }, 8000);
+    
+    // Remove on any key press
+    const removeHelp = () => {
+        if (help && help.parentNode) {
+            help.remove();
+        }
+        document.removeEventListener('keydown', removeHelp);
+    };
+    document.addEventListener('keydown', removeHelp);
 }
 
 // Close modals and search when clicking outside
