@@ -106,7 +106,16 @@ for /r %%f in (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.webm) do (
             )
         )
         
-        if !skip_file! equ 0 (
+        REM If needs_conversion.txt exists, only process files in that list
+        set "process_file=1"
+        if exist "!needs_file!" (
+            findstr /I /C:"%%f" "!needs_file!" >nul 2>&1
+            if !errorlevel! neq 0 (
+                set "process_file=0"
+            )
+        )
+        
+        if !skip_file! equ 0 if !process_file! equ 1 (
             set /a "processed+=1"
             set "input=%%f"
             set "needs_optimization=0"
@@ -168,6 +177,7 @@ for /r %%f in (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.webm) do (
             del temp_*.txt 2>nul
             
             if !needs_optimization! equ 1 (
+                echo   → Optimizing video...
                 echo   → Optimizing video...
                 set "temp=%%~dpnf_temp.mp4"
                 

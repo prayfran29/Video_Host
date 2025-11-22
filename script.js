@@ -5,6 +5,7 @@ let currentSeries = null;
 let currentVideoIndex = 0;
 let tvPlaybackActive = false;
 let tvPlaybackStarted = false;
+let tvPlaybackCancelled = false;
 let consecutiveVideosPlayed = 0;
 
 // Clean up any existing state on page load
@@ -929,6 +930,7 @@ function playVideo(url, filename, title, videoIndex = null) {
     // Reset TV flags for fresh playback state
     tvPlaybackActive = false;
     tvPlaybackStarted = false;
+    tvPlaybackCancelled = false;
     
     // FIRST: Force exit fullscreen completely before doing anything else
     const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
@@ -1057,8 +1059,8 @@ function playVideo(url, filename, title, videoIndex = null) {
     loadingDiv.innerHTML = isTV ? '<div>Preparing TV video...</div>' : '<div>Loading video...</div>';
     
     const showTVPlayButton = () => {
-        // Completely disable this function once any TV playback has started
-        if (tvPlaybackStarted || tvPlaybackActive) {
+        // Completely disable this function once any TV playback has started or cancelled
+        if (tvPlaybackStarted || tvPlaybackActive || tvPlaybackCancelled) {
             return;
         }
         
@@ -1095,7 +1097,7 @@ function playVideo(url, filename, title, videoIndex = null) {
                 <div style="font-size: 48px; margin-bottom: 20px;">📺</div>
                 <div style="font-size: 24px; margin-bottom: 15px; color: white;">${title}</div>
                 <div style="font-size: 16px; color: #ccc; margin-bottom: 30px;">Ready to play</div>
-                <div style="display: flex; gap: 30px; align-items: center;">
+                <div style="display: flex; justify-content: center;">
                     <button onclick="startTVPlayback()" 
                             style="background: #0066ff !important; color: white !important; border: none !important; 
                                    width: 80px !important; height: 80px !important; border-radius: 50% !important; 
@@ -1107,17 +1109,6 @@ function playVideo(url, filename, title, videoIndex = null) {
                             onfocus="this.style.boxShadow='0 4px 15px rgba(0,102,255,0.3), 0 0 0 4px rgba(135,206,250,0.8)'" 
                             onblur="this.style.boxShadow='0 4px 15px rgba(0,102,255,0.3)'">
                         ▶
-                    </button>
-                    <button onclick="goHome()" 
-                            style="background: #666 !important; color: white !important; border: none !important; 
-                                   width: 60px !important; height: 60px !important; border-radius: 50% !important; 
-                                   font-size: 20px !important; cursor: pointer !important; 
-                                   display: flex !important; align-items: center !important; justify-content: center !important; 
-                                   transition: box-shadow 0.2s ease !important;" 
-                            tabindex="0" id="tvCancelBtn" 
-                            onfocus="this.style.boxShadow='0 0 0 4px rgba(135,206,250,0.8)'" 
-                            onblur="this.style.boxShadow='none'">
-                        ✕
                     </button>
                 </div>
             `;
@@ -1133,8 +1124,8 @@ function playVideo(url, filename, title, videoIndex = null) {
     };
     
     const showReady = () => {
-        // Don't show anything for TV if playback has started
-        if (isTV && (tvPlaybackStarted || tvPlaybackActive)) {
+        // Don't show anything if cancelled or if TV playback has started
+        if (tvPlaybackCancelled || (isTV && (tvPlaybackStarted || tvPlaybackActive))) {
             return;
         }
         
@@ -1198,6 +1189,8 @@ function playVideo(url, filename, title, videoIndex = null) {
     });
     
     player.addEventListener('canplay', () => {
+        if (tvPlaybackCancelled) return;
+        
         if (isBrowser) {
             // Auto-play for browsers when ready
             player.play().catch(() => {
@@ -1206,7 +1199,7 @@ function playVideo(url, filename, title, videoIndex = null) {
         } else if (isTV && !tvPlaybackStarted && !tvPlaybackActive) {
             // Wait 2 seconds after canplay for TV to ensure smooth playback
             setTimeout(() => {
-                if (!tvPlaybackStarted && !tvPlaybackActive) {
+                if (!tvPlaybackStarted && !tvPlaybackActive && !tvPlaybackCancelled) {
                     showReady();
                 }
             }, 2000);
@@ -1225,6 +1218,11 @@ function playVideo(url, filename, title, videoIndex = null) {
     }
     
     player.addEventListener('play', () => {
+        if (tvPlaybackCancelled) {
+            player.pause();
+            return;
+        }
+        
         hasStartedPlaying = true;
         loadingDiv.style.display = 'none';
         
@@ -1519,6 +1517,7 @@ function closeVideo() {
     // Reset TV playback flags completely
     tvPlaybackActive = false;
     tvPlaybackStarted = false;
+    tvPlaybackCancelled = false;
     
     // Save progress before closing
     if (currentUser && currentSeries && player.src) {
@@ -1531,31 +1530,20 @@ function closeVideo() {
     // Clean video player completely
     player.pause();
     player.currentTime = 0;
-    player.removeAttribute('src');
+    player.src = '';
+    player.load(); // Force reload to clear all cached data
     player.removeAttribute('poster');
     player.style.backgroundImage = 'none';
     player.style.background = '#000';
     
-    // Create a clean video element to replace the current one
-    const newPlayer = document.createElement('video');
-    newPlayer.id = 'videoPlayer';
-    newPlayer.controls = true;
-    newPlayer.preload = 'metadata';
-    newPlayer.style.cssText = 'width: 100% !important; height: 100% !important; background: #000 !important; background-image: none !important; object-fit: contain;';
-    newPlayer.innerHTML = '<source src="" type="video/mp4">Your browser does not support the video tag.';
-    
-    // Replace the old player with the new clean one
-    player.parentNode.replaceChild(newPlayer, player);
-    
-    // Clear event handlers on the new player
-    const cleanPlayer = document.getElementById('videoPlayer');
-    cleanPlayer.ontimeupdate = null;
-    cleanPlayer.onended = null;
-    cleanPlayer.onplay = null;
-    cleanPlayer.onwaiting = null;
-    cleanPlayer.onerror = null;
-    cleanPlayer.oncanplay = null;
-    cleanPlayer.onloadedmetadata = null;
+    // Clear event handlers
+    player.ontimeupdate = null;
+    player.onended = null;
+    player.onplay = null;
+    player.onwaiting = null;
+    player.onerror = null;
+    player.oncanplay = null;
+    player.onloadedmetadata = null;
     
     // Remove all overlays
     hideTVLoadingOverlay();
@@ -1687,6 +1675,7 @@ function goHome() {
     // Reset TV playback flags completely
     tvPlaybackActive = false;
     tvPlaybackStarted = false;
+    tvPlaybackCancelled = false;
     consecutiveVideosPlayed = 0; // Reset counter
     
     // Stop video to prevent background playback
@@ -2386,7 +2375,40 @@ function showTVLoadingOverlay(title) {
 }
 
 // Function to start TV playback when play button is pressed
+function cancelTVPlayback() {
+    const player = document.getElementById('videoPlayer');
+    
+    // Set cancelled flag to prevent any further video setup
+    tvPlaybackCancelled = true;
+    
+    // Stop video completely
+    player.pause();
+    player.src = '';
+    player.load();
+    
+    // Clear all event handlers to prevent any further execution
+    player.ontimeupdate = null;
+    player.onended = null;
+    player.onplay = null;
+    player.onwaiting = null;
+    player.onerror = null;
+    player.oncanplay = null;
+    player.onloadedmetadata = null;
+    
+    // Reset flags
+    tvPlaybackActive = false;
+    tvPlaybackStarted = false;
+    
+    // Go home
+    goHome();
+}
+
 function startTVPlayback() {
+    // Check if playback was cancelled
+    if (tvPlaybackCancelled) {
+        return;
+    }
+    
     const player = document.getElementById('videoPlayer');
     const modal = document.getElementById('videoModal');
     
@@ -2448,7 +2470,18 @@ function startTVPlayback() {
     setTimeout(() => {
         toggleFullscreen(player);
         // Start playback
-        player.play().catch(console.error);
+        player.play().then(() => {
+            // If this is a cancel operation, exit fullscreen immediately
+            if (shouldExitAfterFullscreen) {
+                setTimeout(() => {
+                    if (document.exitFullscreen) document.exitFullscreen();
+                    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+                    else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
+                    else if (document.msExitFullscreen) document.msExitFullscreen();
+                    shouldExitAfterFullscreen = false;
+                }, 100);
+            }
+        }).catch(console.error);
     }, 500);
 }
 
