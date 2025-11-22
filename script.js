@@ -1590,19 +1590,6 @@ function updateVideoControls() {
 
 function playPreviousVideo() {
     if (currentSeries && currentVideoIndex > 0) {
-        // Force exit fullscreen first
-        const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
-        if (isFullscreen) {
-            if (document.exitFullscreen) document.exitFullscreen();
-            else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-            else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
-            else if (document.msExitFullscreen) document.msExitFullscreen();
-        }
-        
-        // Reset TV playback flags to trigger loading modal flow
-        tvPlaybackActive = false;
-        tvPlaybackStarted = false;
-        
         const prevVideo = currentSeries.videos[currentVideoIndex - 1];
         playVideo(prevVideo.url, prevVideo.filename, prevVideo.title, currentVideoIndex - 1);
     }
@@ -1610,19 +1597,6 @@ function playPreviousVideo() {
 
 function playNextVideo() {
     if (currentSeries && currentVideoIndex < currentSeries.videos.length - 1) {
-        // Force exit fullscreen first
-        const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
-        if (isFullscreen) {
-            if (document.exitFullscreen) document.exitFullscreen();
-            else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-            else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
-            else if (document.msExitFullscreen) document.msExitFullscreen();
-        }
-        
-        // Reset TV playback flags to trigger loading modal flow
-        tvPlaybackActive = false;
-        tvPlaybackStarted = false;
-        
         const nextVideo = currentSeries.videos[currentVideoIndex + 1];
         playVideo(nextVideo.url, nextVideo.filename, nextVideo.title, currentVideoIndex + 1);
     }

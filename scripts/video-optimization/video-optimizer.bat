@@ -3,12 +3,69 @@ setlocal enabledelayedexpansion
 echo Smart Video Optimizer - Analyzing and optimizing videos for streaming...
 echo.
 
-REM Check if ffmpeg is available
+echo Checking for FFmpeg...
 ffmpeg -version >nul 2>&1
 if !errorlevel! neq 0 (
     echo ❌ FFmpeg not found! Please install FFmpeg and add it to PATH.
+    echo Download from: https://ffmpeg.org/download.html
     pause
     exit /b 1
+)
+echo ✓ FFmpeg found
+
+REM Detect GPU encoder
+set "gpu_encoder=libx264"
+set "gpu_preset=medium"
+echo Detecting GPU encoders...
+
+REM Check for NVIDIA NVENC
+echo Checking NVIDIA NVENC...
+ffmpeg -f lavfi -i testsrc2=duration=1:size=320x240:rate=1 -c:v h264_nvenc -f null - >nul 2>&1
+if !errorlevel! equ 0 (
+    echo ✓ NVIDIA NVENC detected
+    set "gpu_encoder=h264_nvenc"
+    set "gpu_preset=p4"
+    goto gpu_found
+)
+
+REM Check for AMD AMF
+echo Checking AMD AMF...
+ffmpeg -f lavfi -i testsrc2=duration=1:size=320x240:rate=1 -c:v h264_amf -f null - >nul 2>&1
+if !errorlevel! equ 0 (
+    echo ✓ AMD AMF detected
+    set "gpu_encoder=h264_amf"
+    set "gpu_preset=balanced"
+    goto gpu_found
+)
+
+REM Check for Intel QuickSync
+echo Checking Intel QuickSync...
+ffmpeg -f lavfi -i testsrc2=duration=1:size=320x240:rate=1 -c:v h264_qsv -f null - >nul 2>&1
+if !errorlevel! equ 0 (
+    echo ✓ Intel QuickSync detected
+    set "gpu_encoder=h264_qsv"
+    set "gpu_preset=medium"
+    goto gpu_found
+)
+
+echo ⚠️ No GPU encoder found, using CPU encoding
+
+:gpu_found
+echo Using encoder: !gpu_encoder!
+echo.
+
+echo Checking if D:\videos exists...
+if not exist "D:\videos" (
+    echo ❌ Directory D:\videos does not exist!
+    echo Creating directory D:\videos...
+    mkdir "D:\videos" 2>nul
+    if !errorlevel! neq 0 (
+        echo ❌ Failed to create D:\videos directory
+        echo Please create the directory manually or change the path in the script
+        pause
+        exit /b 1
+    )
+    echo ✓ Directory created
 )
 
 cd /d "D:\videos"
@@ -17,11 +74,26 @@ if !errorlevel! neq 0 (
     pause
     exit /b 1
 )
+echo ✓ Successfully accessed D:\videos
+
+REM Check if needs_conversion.txt exists and count files
+set "needs_file=D:\videos\needs_conversion.txt"
+set "total_to_convert=0"
+if exist "!needs_file!" (
+    for /f %%i in ('type "!needs_file!" ^| find /c /v ""') do set "total_to_convert=%%i"
+    echo ✓ Found conversion list: !total_to_convert! files need optimization
+) else (
+    echo ⚠️ No needs_conversion.txt found - will analyze all files
+)
+echo.
 
 set "processed=0"
 set "optimized=0"
 set "errors=0"
 set "completed_file=D:\videos\video_optimizer_completed.dat"
+
+echo Searching for video files...
+echo.
 
 for /r %%f in (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.webm) do (
     if exist "%%f" (
@@ -66,7 +138,7 @@ for /r %%f in (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.webm) do (
             )
             
             REM Check if audio has more than 2 channels
-            for /f "tokens=3 delims=," %%c in ("!audio_info!") do (
+            for /f "tokens=2 delims=," %%c in ("!audio_info!") do (
                 if %%c gtr 2 (
                     echo   → Audio has more than 2 channels
                     set "needs_optimization=1"
@@ -103,7 +175,16 @@ for /r %%f in (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.webm) do (
                 set "backup=%%~dpnf_backup%%~xf"
                 copy "!input!" "!backup!" >nul
                 
-                ffmpeg -i "!input!" -c:v libx264 -profile:v main -level 4.0 -preset medium -crf 23 -maxrate 4M -bufsize 8M -vf "scale='min(1920,iw)':'min(1080,ih)'" -c:a aac -ac 2 -ar 48000 -b:a 128k -movflags +faststart -map 0:v:0 -map 0:a:0? -sn "!temp!" -y
+                REM Use appropriate GPU encoder with proper streaming/TV settings
+                if "!gpu_encoder!"=="h264_nvenc" (
+                    ffmpeg -i "!input!" -c:v h264_nvenc -preset !gpu_preset! -profile:v main -level 4.0 -rc vbr -cq 23 -maxrate 4M -bufsize 8M -vf "scale='min(1920,iw)':'min(1080,ih)'" -c:a aac -ac 2 -ar 48000 -b:a 128k -movflags +faststart -map 0:v:0 -map 0:a:0? -sn "!temp!" -y
+                ) else if "!gpu_encoder!"=="h264_amf" (
+                    ffmpeg -i "!input!" -c:v h264_amf -quality !gpu_preset! -profile:v main -level 4.0 -rc cqp -qp_i 23 -qp_p 23 -maxrate 4M -bufsize 8M -vf "scale='min(1920,iw)':'min(1080,ih)'" -c:a aac -ac 2 -ar 48000 -b:a 128k -movflags +faststart -map 0:v:0 -map 0:a:0? -sn "!temp!" -y
+                ) else if "!gpu_encoder!"=="h264_qsv" (
+                    ffmpeg -i "!input!" -c:v h264_qsv -preset !gpu_preset! -profile:v main -level 4.0 -global_quality 23 -maxrate 4M -bufsize 8M -vf "scale='min(1920,iw)':'min(1080,ih)'" -c:a aac -ac 2 -ar 48000 -b:a 128k -movflags +faststart -map 0:v:0 -map 0:a:0? -sn "!temp!" -y
+                ) else (
+                    ffmpeg -i "!input!" -c:v libx264 -profile:v main -level 4.0 -preset medium -crf 23 -maxrate 4M -bufsize 8M -vf "scale='min(1920,iw)':'min(1080,ih)'" -c:a aac -ac 2 -ar 48000 -b:a 128k -movflags +faststart -map 0:v:0 -map 0:a:0? -sn "!temp!" -y
+                )
                 
                 if !errorlevel! equ 0 (
                     REM Verify the output file is valid
@@ -145,6 +226,11 @@ for /r %%f in (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.webm) do (
 )
 
 echo.
+if !processed! equ 0 (
+    echo ⚠️ No video files found in D:\videos
+    echo Please add video files to the directory and run again
+)
+
 echo ==========================================
 echo Smart optimization complete!
 echo Files processed: !processed!
