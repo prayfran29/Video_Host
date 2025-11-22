@@ -969,6 +969,7 @@ function playVideo(url, filename, title, videoIndex = null) {
     const userAgent = navigator.userAgent || '';
     const isTV = /Smart-TV|Tizen|WebOS|Android TV|BRAVIA|Samsung|LG webOS/i.test(userAgent) || (navigator.userAgent.includes('wv') && typeof Android !== 'undefined');
     const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent) && !isTV;
+    const isBrowser = !isTV && !isMobile;
     
     // Reset player and show loading - remove any poster to prevent broken icon
     player.pause();
@@ -1019,18 +1020,20 @@ function playVideo(url, filename, title, videoIndex = null) {
     if (isTV) {
         player.setAttribute('webkit-playsinline', 'true');
         player.muted = false;
-        // Disable autoplay for TV
+        // Disable autoplay for TV - requires manual play button
         player.removeAttribute('autoplay');
         enableFullscreenSupport(player);
-    }
-    
-    if (isMobile) {
+    } else if (isMobile) {
         player.setAttribute('webkit-playsinline', 'true');
         player.setAttribute('playsinline', 'true');
         player.muted = false;
-        // Disable autoplay for mobile
+        // Disable autoplay for mobile - requires manual play button
         player.removeAttribute('autoplay');
         enableFullscreenSupport(player);
+    } else if (isBrowser) {
+        // Enable autoplay for desktop browsers
+        player.setAttribute('autoplay', 'true');
+        player.muted = false;
     }
     
     // Set video source with proper error handling
@@ -1191,8 +1194,11 @@ function playVideo(url, filename, title, videoIndex = null) {
     });
     
     player.addEventListener('canplay', () => {
-        if (!isTV) {
-            showReady();
+        if (isBrowser) {
+            // Auto-play for browsers when ready
+            player.play().catch(() => {
+                showReady();
+            });
         } else if (isTV && !tvPlaybackStarted && !tvPlaybackActive) {
             // Wait 2 seconds after canplay for TV to ensure smooth playback
             setTimeout(() => {
@@ -1200,6 +1206,8 @@ function playVideo(url, filename, title, videoIndex = null) {
                     showReady();
                 }
             }, 2000);
+        } else if (isMobile) {
+            showReady();
         }
     });
     
@@ -1330,26 +1338,27 @@ function playVideo(url, filename, title, videoIndex = null) {
         };
     }
     
-    // For TV and Mobile: show loading overlay, for desktop show modal
-    if ((isTV && !tvPlaybackActive) || (isMobile && !tvPlaybackActive)) {
+    // Handle display based on device type
+    if (isTV && !tvPlaybackActive) {
         modal.style.display = 'none';
-        if (isTV) {
-            showTVLoadingOverlay(title);
-        } else {
-            showMobileLoadingOverlay(title);
-        }
+        showTVLoadingOverlay(title);
         // Show play button after 2 seconds
         tvButtonTimeout = setTimeout(() => {
             if (!tvPlaybackStarted) {
-                if (isTV) {
-                    showTVPlayButton();
-                } else {
-                    showMobilePlayButton();
-                }
+                showTVPlayButton();
+            }
+        }, 2000);
+    } else if (isMobile && !tvPlaybackActive) {
+        modal.style.display = 'none';
+        showMobileLoadingOverlay(title);
+        // Show play button after 2 seconds
+        tvButtonTimeout = setTimeout(() => {
+            if (!tvPlaybackStarted) {
+                showMobilePlayButton();
             }
         }, 2000);
     } else {
-        // Force show modal for desktop browsers
+        // Show modal immediately for desktop browsers with autoplay
         modal.style.cssText = 'display: block !important; visibility: visible !important; opacity: 1 !important; z-index: 2200 !important;';
     }
     document.getElementById('seriesModal').style.display = 'none';

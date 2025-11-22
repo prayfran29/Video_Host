@@ -40,6 +40,12 @@
                 <div class="no-pending">Loading...</div>
             </div>
             
+            <h2>System Management</h2>
+            <div style="background: #333; padding: 1rem; margin: 1rem 0; border-radius: 8px;">
+                <button class="profile-btn" onclick="refreshVideoCache()" style="background: #0066ff;">🔄 Refresh Video Cache</button>
+                <small style="color: #999; margin-left: 1rem;">Refresh the video library cache after adding new content</small>
+            </div>
+            
             <h2>Existing Users</h2>
             <div id="existingUsers">
                 <div class="no-pending">Loading...</div>
@@ -203,6 +209,32 @@
         // Load both pending and existing users on page load
         loadPendingUsers();
         loadExistingUsers();
+        
+        async function refreshVideoCache() {
+            try {
+                const button = event.target;
+                button.disabled = true;
+                button.textContent = '🔄 Refreshing...';
+                
+                const response = await fetch('/api/admin/refresh-cache', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    alert(`Cache refreshed! Found ${data.series} series in ${data.genres} genres.`);
+                } else {
+                    alert('Failed to refresh cache');
+                }
+            } catch (error) {
+                alert('Error refreshing cache');
+            } finally {
+                const button = event.target;
+                button.disabled = false;
+                button.textContent = '🔄 Refresh Video Cache';
+            }
+        }
         
         // Auto-refresh every 5 minutes to reduce server load
         setInterval(() => {

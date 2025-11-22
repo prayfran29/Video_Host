@@ -15,10 +15,21 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // Skip external resources and video files
+  if (event.request.url.includes('fonts.googleapis.com') ||
+      event.request.url.includes('cloudflareinsights.com') ||
+      event.request.url.includes('/videos/')) {
+    return;
+  }
+  
   event.respondWith(
     caches.match(event.request)
       .then((response) => {
         return response || fetch(event.request);
+      })
+      .catch(() => {
+        // Fallback for failed requests
+        return fetch(event.request);
       })
   );
 });

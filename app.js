@@ -27,7 +27,7 @@ app.use(helmet({
             scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-hashes'", "https://static.cloudflareinsights.com"],
             scriptSrcAttr: ["'unsafe-inline'"],
             mediaSrc: ["'self'", "data:", "blob:"],
-            connectSrc: ["'self'", "https://cloudflareinsights.com"]
+            connectSrc: ["'self'", "https://cloudflareinsights.com", "https://static.cloudflareinsights.com", "https://fonts.googleapis.com", "https://fonts.gstatic.com"]
         }
     }
 }));
@@ -225,16 +225,40 @@ const videosDir = config.getVideosPath();
 
 
 
-// Cache for video structure
-let videoCache = { series: [], genres: {}, lastScan: 0 };
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+// Cache for video structure - persistent until manual refresh
+let videoCache = { series: [], genres: {}, lastScan: 0, isInitialized: false };
+const videoCacheFile = path.join(dataDir, 'video-cache.json');
 
 // Validate videos directory on startup
 if (!config.validateVideosPath()) {
     console.error('⚠️  Videos directory validation failed. Check permissions and path.');
 }
 
-// Scan video structure on startup
+// Load video cache from file or scan if not exists
+function loadVideoCache() {
+    if (fs.existsSync(videoCacheFile)) {
+        try {
+            const cacheData = JSON.parse(fs.readFileSync(videoCacheFile, 'utf8'));
+            videoCache = { ...cacheData, isInitialized: true };
+            console.log(`✓ Loaded ${videoCache.series.length} series from cache`);
+            return;
+        } catch (error) {
+            console.warn('Failed to load video cache, rescanning...');
+        }
+    }
+    scanVideoStructure();
+}
+
+// Save video cache to file
+function saveVideoCache() {
+    try {
+        fs.writeFileSync(videoCacheFile, JSON.stringify(videoCache, null, 2));
+    } catch (error) {
+        console.error('Failed to save video cache:', error);
+    }
+}
+
+// Scan video structure and save to cache
 function scanVideoStructure() {
     try {
         console.log('🔍 Scanning video structure...');
@@ -263,7 +287,14 @@ function scanVideoStructure() {
                 
                 if (videos.length > 0) {
                     // This directory contains videos - it's a series
-                    const thumbnail = files.find(f => f.toLowerCase() === 'img' || f.startsWith('img.'));
+                    const thumbnail = files.find(f => {
+                        const lower = f.toLowerCase();
+                        return lower === 'img.jpg' || lower === 'img.jpeg' || lower === 'img.png' || 
+                               lower === 'img.webp' || lower === 'img.gif' || lower === 'img' ||
+                               lower.startsWith('img.') || lower === 'poster.jpg' || lower === 'poster.png' ||
+                               lower === 'cover.jpg' || lower === 'cover.png' || lower === 'thumbnail.jpg' ||
+                               lower === 'thumbnail.png' || f.match(/\.(jpg|jpeg|png|webp|gif)$/i);
+                    });
                     const relativePath = path.relative(videosDir, itemPath).replace(/\\/g, '/');
                     const pathParts = relativePath.split('/');
                     const genre = pathParts.length > 1 ? `${pathParts[0]}/${pathParts[1]}` : pathParts[0] || 'Other';
@@ -293,15 +324,16 @@ function scanVideoStructure() {
         
         scanDirectory(videosDir);
         
-        videoCache = { series, genres, lastScan: Date.now() };
+        videoCache = { series, genres, lastScan: Date.now(), isInitialized: true };
+        saveVideoCache();
         console.log(`✓ Scanned ${series.length} series in ${Object.keys(genres).length} genres`);
     } catch (error) {
         console.error('Error scanning video structure:', error);
     }
 }
 
-// Initial scan
-scanVideoStructure();
+// Load cache on startup
+loadVideoCache();
 
 // Auth middleware with token expiration and blacklist check
 const auth = async (req, res, next) => {
@@ -369,13 +401,7 @@ app.use('/videos', (req, res, next) => {
     
     // Validate file path
     if (!validatePath(filePath)) {
-        return res.status(403).json({ error: 'Access denied' });
-    }
-    
-    // Check file exists and is within videos directory
-    let fullPath = path.join(videosDir, filePath);
-    
-    if (!fullPath.startsWith(videosDir)) {
+        console.log(`❌ Invalid path: ${filePath}`);
         return res.status(403).json({ error: 'Access denied' });
     }
     
@@ -384,8 +410,11 @@ app.use('/videos', (req, res, next) => {
     let resolvedPath = videosDir;
     let pathResolved = true;
     
+    console.log(`🔍 Resolving path parts:`, pathParts);
+    
     for (const part of pathParts) {
         if (!fs.existsSync(resolvedPath)) {
+            console.log(`❌ Directory not found: ${resolvedPath}`);
             pathResolved = false;
             break;
         }
@@ -395,30 +424,45 @@ app.use('/videos', (req, res, next) => {
         
         if (matchedItem) {
             resolvedPath = path.join(resolvedPath, matchedItem);
+            console.log(`✓ Matched: ${part} -> ${matchedItem}`);
         } else {
             resolvedPath = path.join(resolvedPath, part);
-            pathResolved = false;
-            break;
+            console.log(`⚠ No match for: ${part}, trying exact path`);
+            if (!fs.existsSync(resolvedPath)) {
+                pathResolved = false;
+                break;
+            }
         }
     }
     
-    if (pathResolved && fs.existsSync(resolvedPath)) {
-        fullPath = resolvedPath;
+    console.log(`📁 Final resolved path: ${resolvedPath}`);
+    console.log(`✓ Path exists: ${fs.existsSync(resolvedPath)}`);
+    
+    if (!pathResolved || !fs.existsSync(resolvedPath)) {
+        console.log(`❌ File not found: ${resolvedPath}`);
+        return res.status(404).json({ error: 'File not found' });
+    }
+    
+    // Security check
+    if (!resolvedPath.startsWith(videosDir)) {
+        console.log(`❌ Security violation: ${resolvedPath}`);
+        return res.status(403).json({ error: 'Access denied' });
     }
     
     // Handle video streaming with range requests
     if (req.path.match(/\.(mp4|webm|ogg|avi|mkv)$/i)) {
-        return streamVideo(req, res, fullPath);
+        return streamVideo(req, res, resolvedPath);
     }
     
     // Handle other files (thumbnails, etc.)
     try {
-        if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
-            res.sendFile(fullPath);
+        if (fs.statSync(resolvedPath).isFile()) {
+            res.sendFile(resolvedPath);
         } else {
             res.status(404).json({ error: 'File not found' });
         }
     } catch (error) {
+        console.log(`❌ File serve error:`, error.message);
         res.status(404).json({ error: 'File not found' });
     }
 });
@@ -829,9 +873,9 @@ app.get('/api/qr/:token', async (req, res) => {
 // Get all series from videos directory with auth (supports genre folders)
 app.get('/api/series', auth, (req, res) => {
     try {
-        // Check if cache is still valid
-        if (Date.now() - videoCache.lastScan > CACHE_DURATION) {
-            scanVideoStructure();
+        // Use cached data - no more periodic rescanning
+        if (!videoCache.isInitialized) {
+            loadVideoCache();
         }
         
         const { search } = req.query;
@@ -857,9 +901,9 @@ app.get('/api/series', auth, (req, res) => {
 // Get series grouped by genre
 app.get('/api/genres', auth, (req, res) => {
     try {
-        // Check if cache is still valid
-        if (Date.now() - videoCache.lastScan > CACHE_DURATION) {
-            scanVideoStructure();
+        // Use cached data - no more periodic rescanning
+        if (!videoCache.isInitialized) {
+            loadVideoCache();
         }
         
         res.json(videoCache.genres);
@@ -1060,6 +1104,20 @@ app.delete('/api/admin/users/:id', auth, adminAuth, (req, res) => {
     users.splice(userIndex, 1);
     saveUsers();
     res.json({ message: 'User deleted' });
+});
+
+// Admin endpoint to refresh video cache
+app.post('/api/admin/refresh-cache', auth, adminAuth, (req, res) => {
+    try {
+        scanVideoStructure();
+        res.json({ 
+            message: 'Video cache refreshed', 
+            series: videoCache.series.length,
+            genres: Object.keys(videoCache.genres).length
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to refresh cache' });
+    }
 });
 
 
