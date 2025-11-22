@@ -926,6 +926,10 @@ function stopWatching() {
 
 function playVideo(url, filename, title, videoIndex = null) {
     try {
+    // Reset TV flags for fresh playback state
+    tvPlaybackActive = false;
+    tvPlaybackStarted = false;
+    
     // FIRST: Force exit fullscreen completely before doing anything else
     const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
     if (isFullscreen) {
@@ -1413,7 +1417,7 @@ function enableFullscreenSupport(player) {
                 // Don't go home if video just ended - let auto-play handle it
                 return;
             }
-            if (isTV && !isFullscreen) {
+            if (isTV && !isFullscreen && !navigatingFromFullscreen) {
                 // Reset flags when manually exiting fullscreen
                 tvPlaybackActive = false;
                 tvPlaybackStarted = false;
@@ -1588,6 +1592,40 @@ function updateVideoControls() {
     // No video controls to update - using remote buttons only
 }
 
+function handleChannelUp() {
+    const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+    if (isFullscreen) {
+        navigatingFromFullscreen = true;
+        if (document.exitFullscreen) document.exitFullscreen();
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+        else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
+        else if (document.msExitFullscreen) document.msExitFullscreen();
+        setTimeout(() => {
+            playNextVideo();
+            navigatingFromFullscreen = false;
+        }, 200);
+    } else {
+        playNextVideo();
+    }
+}
+
+function handleChannelDown() {
+    const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+    if (isFullscreen) {
+        navigatingFromFullscreen = true;
+        if (document.exitFullscreen) document.exitFullscreen();
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+        else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
+        else if (document.msExitFullscreen) document.msExitFullscreen();
+        setTimeout(() => {
+            playPreviousVideo();
+            navigatingFromFullscreen = false;
+        }, 200);
+    } else {
+        playPreviousVideo();
+    }
+}
+
 function playPreviousVideo() {
     if (currentSeries && currentVideoIndex > 0) {
         const prevVideo = currentSeries.videos[currentVideoIndex - 1];
@@ -1689,6 +1727,7 @@ function goHome() {
 // TV navigation state
 let currentSwimlaneIndex = -1;
 let swimlanes = [];
+let navigatingFromFullscreen = false;
 
 // Update swimlanes list when content loads
 function updateSwimlanes() {
@@ -1984,12 +2023,15 @@ document.addEventListener('keydown', (event) => {
             case 'ChannelDown':
             case '-':
                 event.preventDefault();
-                playPreviousVideo();
+                handleChannelDown();
                 break;
             case '+':
             case 'ChannelUp':
                 event.preventDefault();
-                playNextVideo();
+                // Force reset TV flags before navigation
+                tvPlaybackActive = false;
+                tvPlaybackStarted = false;
+                handleChannelUp();
                 break;
 
         }
